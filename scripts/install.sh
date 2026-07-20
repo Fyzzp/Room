@@ -78,7 +78,9 @@ services:
       - ${DATA_DIR}/postgres:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U room"]
-      interval: 5s; timeout: 5s; retries: 5
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   redis:
     image: redis:7-alpine
@@ -87,7 +89,9 @@ services:
       - ${DATA_DIR}/redis:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 5s; timeout: 5s; retries: 5
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   master:
     image: alpine:3.21  # 轻量运行时容器
