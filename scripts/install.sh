@@ -52,12 +52,19 @@ install_deps() {
 
 setup_database() {
     info "配置数据库..."
+    # 生成随机密码
+    DB_PASS=$(cat /dev/urandom 2>/dev/null | tr -dc 'a-zA-Z0-9' | fold -w 20 | head -n 1 || echo "room-$(date +%s)")
+    echo "$DB_PASS" > "$DATA_DIR/.db_password"
+    chmod 600 "$DATA_DIR/.db_password"
+
     # 创建用户和数据库（幂等）
     su - postgres -c "psql -tc \"SELECT 1 FROM pg_roles WHERE rolname='room'\"" 2>/dev/null | grep -q 1 || \
-        su - postgres -c "psql -c \"CREATE USER room WITH PASSWORD 'room';\"" 2>/dev/null || true
+        su - postgres -c "psql -c \"CREATE USER room WITH PASSWORD '\$DB_PASS';\"" 2>/dev/null || true
     su - postgres -c "psql -tc \"SELECT 1 FROM pg_database WHERE datname='room'\"" 2>/dev/null | grep -q 1 || \
         su - postgres -c "psql -c \"CREATE DATABASE room OWNER room;\"" 2>/dev/null || true
-    info "数据库用户/库已就绪"
+    # 更新已有用户的密码（幂等）
+    su - postgres -c "psql -c \"ALTER USER room WITH PASSWORD '\$DB_PASS';\"" 2>/dev/null || true
+    info "数据库就绪"
 }
 
 download_release() {
@@ -94,6 +101,8 @@ install_files() {
 
 create_service() {
     PORT="${PORT:-12889}"
+    # 读取数据库密码
+    DB_PASS=$(cat "$DATA_DIR/.db_password" 2>/dev/null || echo "room")
     info "创建 systemd 服务（端口: $PORT）"
 
     cat > /etc/systemd/system/${SERVICE_NAME}.service <<EOF
@@ -117,7 +126,7 @@ Environment="PORT=$PORT"
 Environment="DB_HOST=localhost"
 Environment="DB_PORT=5432"
 Environment="DB_USER=room"
-Environment="DB_PASSWORD=room"
+Environment="DB_PASSWORD=${DB_PASS}"
 Environment="DB_NAME=room"
 Environment="REDIS_ADDR=localhost:6379"
 Environment="LOG_LEVEL=info"
