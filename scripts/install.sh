@@ -180,7 +180,7 @@ update_service() {
     cp "$INSTALL_DIR/$SERVICE_NAME" "$INSTALL_DIR/${SERVICE_NAME}.bak" 2>/dev/null || true
     download_release
     install_files
-    systemctl daemon-reload
+    create_service   # 重建 systemd unit
     if start_service; then
         rm -f "$INSTALL_DIR/${SERVICE_NAME}.bak"
         show_done
