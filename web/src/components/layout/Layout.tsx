@@ -5,7 +5,6 @@ import {
   Server,
   Activity,
   Link2,
-  Settings,
   LogOut,
 } from 'lucide-react'
 
