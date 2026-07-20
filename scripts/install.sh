@@ -52,19 +52,21 @@ install_deps() {
 
 setup_database() {
     info "配置数据库..."
+    mkdir -p "$DATA_DIR"
+
     # 生成随机密码
-    DB_PASS=$(cat /dev/urandom 2>/dev/null | tr -dc 'a-zA-Z0-9' | fold -w 20 | head -n 1 || echo "room-$(date +%s)")
+    DB_PASS=$(cat /dev/urandom 2>/dev/null | tr -dc 'a-zA-Z0-9' | fold -w 20 | head -n 1)
+    [ -z "$DB_PASS" ] && DB_PASS="room-$(date +%s)-$(od -A n -t u4 /dev/urandom 2>/dev/null | tr -d ' ' || echo $RANDOM)"
     echo "$DB_PASS" > "$DATA_DIR/.db_password"
     chmod 600 "$DATA_DIR/.db_password"
 
-    # 创建用户和数据库（幂等）
+    # 创建用户和数据库（幂等）— 用外层 Shell 展开 ${DB_PASS}
     su - postgres -c "psql -tc \"SELECT 1 FROM pg_roles WHERE rolname='room'\"" 2>/dev/null | grep -q 1 || \
-        su - postgres -c "psql -c \"CREATE USER room WITH PASSWORD '\$DB_PASS';\"" 2>/dev/null || true
+        su - postgres -c "psql -c \"CREATE USER room WITH PASSWORD '${DB_PASS}';\"" 2>/dev/null || true
     su - postgres -c "psql -tc \"SELECT 1 FROM pg_database WHERE datname='room'\"" 2>/dev/null | grep -q 1 || \
         su - postgres -c "psql -c \"CREATE DATABASE room OWNER room;\"" 2>/dev/null || true
-    # 更新已有用户的密码（幂等）
-    su - postgres -c "psql -c \"ALTER USER room WITH PASSWORD '\$DB_PASS';\"" 2>/dev/null || true
-    info "数据库就绪"
+    su - postgres -c "psql -c \"ALTER USER room WITH PASSWORD '${DB_PASS}';\"" 2>/dev/null || true
+    info "数据库就绪（密码: $DATA_DIR/.db_password）"
 }
 
 download_release() {
