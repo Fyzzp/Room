@@ -57,8 +57,7 @@ setup_database() {
     # 生成随机密码
     DB_PASS=$(cat /dev/urandom 2>/dev/null | tr -dc 'a-zA-Z0-9' | fold -w 20 | head -n 1)
     [ -z "$DB_PASS" ] && DB_PASS="room-$(date +%s)-$(od -A n -t u4 /dev/urandom 2>/dev/null | tr -d ' ' || echo $RANDOM)"
-    echo "$DB_PASS" > "$DATA_DIR/.db_password"
-    chmod 600 "$DATA_DIR/.db_password"
+    (umask 077; echo "$DB_PASS" > "$DATA_DIR/.db_password")
 
     # 创建用户和数据库（幂等）— 用外层 Shell 展开 ${DB_PASS}
     su - postgres -c "psql -tc \"SELECT 1 FROM pg_roles WHERE rolname='room'\"" 2>/dev/null | grep -q 1 || \
@@ -103,8 +102,10 @@ install_files() {
 
 create_service() {
     PORT="${PORT:-12889}"
-    # 读取数据库密码
-    DB_PASS=$(cat "$DATA_DIR/.db_password" 2>/dev/null || echo "room")
+    if [ ! -f "$DATA_DIR/.db_password" ]; then
+        error "密码文件缺失: $DATA_DIR/.db_password"; exit 1
+    fi
+    DB_PASS=$(cat "$DATA_DIR/.db_password")
     info "创建 systemd 服务（端口: $PORT）"
 
     cat > /etc/systemd/system/${SERVICE_NAME}.service <<EOF
@@ -141,6 +142,7 @@ WantedBy=multi-user.target
 EOF
 
     systemctl daemon-reload
+    chmod 600 /etc/systemd/system/${SERVICE_NAME}.service
 }
 
 start_service() {
