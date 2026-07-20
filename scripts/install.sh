@@ -133,6 +133,16 @@ EOF
 }
 
 start_service() {
+    PORT=$(grep 'PORT=' /etc/systemd/system/${SERVICE_NAME}.service | sed 's/.*PORT=\([0-9]*\).*/\1/')
+    PORT=${PORT:-12889}
+
+    # 清理占用端口的旧进程（如旧 Docker 部署残留）
+    if ss -tlnp 2>/dev/null | grep -q ":${PORT} "; then
+        warn "端口 $PORT 被占用，尝试清理..."
+        fuser -k ${PORT}/tcp 2>/dev/null || true
+        sleep 1
+    fi
+
     info "启动服务..."
     systemctl enable ${SERVICE_NAME}.service 2>/dev/null || true
     systemctl start ${SERVICE_NAME}.service
@@ -142,7 +152,7 @@ start_service() {
         info "服务启动成功"
         return 0
     else
-        error "服务启动失败"
+        error "服务启动失败（端口 $PORT 可能仍被占用）"
         return 1
     fi
 }
