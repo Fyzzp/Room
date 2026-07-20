@@ -33,3 +33,6 @@ web/node_modules/
 # Data
 data/
 *.db
+web/tsconfig.tsbuildinfo
+web/node_modules
+web/package-lock.json
