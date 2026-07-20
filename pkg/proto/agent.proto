@@ -1,7 +1,7 @@
 syntax = "proto3";
 
 package agent;
-option go_package = "github.com/yourorg/xray-panel/pkg/proto/agent";
+option go_package = "github.com/Fyzzp/Room/pkg/proto/agent";
 
 // ========================
 // Agent 对外暴露的服务（主控调用 Agent）

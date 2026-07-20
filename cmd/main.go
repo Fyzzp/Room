@@ -370,14 +370,14 @@ esac
 
 # 下载 Agent
 echo "[1/3] Downloading agent..."
-curl -fsSL -o /tmp/xray-agent "https://github.com/Fyzzp/Room/releases/latest/download/xray-agent-linux-${ARCH_NAME}"
-chmod +x /tmp/xray-agent
-mv /tmp/xray-agent /usr/local/bin/xray-agent
+curl -fsSL -o /tmp/room-agent "https://github.com/Fyzzp/Room-Agent/releases/latest/download/room-agent-linux-${ARCH_NAME}"
+chmod +x /tmp/room-agent
+mv /tmp/room-agent /usr/local/bin/room-agent
 
 # 创建配置
 echo "[2/3] Creating config..."
-mkdir -p /etc/xray-agent
-cat > /etc/xray-agent/config.yaml << EOF
+mkdir -p /etc/room-agent
+cat > /etc/room-agent/config.yaml << EOF
 mode: remote
 master_url: https://%s
 token: %s
@@ -389,13 +389,13 @@ EOF
 
 # 创建 systemd 服务
 echo "[3/3] Creating service..."
-cat > /etc/systemd/system/xray-agent.service << EOF
+cat > /etc/systemd/system/room-agent.service << EOF
 [Unit]
 Description=Xray Panel Agent
 After=network.target
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/xray-agent -c /etc/xray-agent/config.yaml
+ExecStart=/usr/local/bin/room-agent -c /etc/room-agent/config.yaml
 Restart=always
 RestartSec=5
 [Install]
@@ -403,12 +403,12 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable xray-agent
-systemctl start xray-agent
+systemctl enable room-agent
+systemctl start room-agent
 
 echo ""
 echo "=== Installation Complete ==="
-echo "Check status: systemctl status xray-agent"
+echo "Check status: systemctl status room-agent"
 `, masterHost, masterHost, token)
 }
 

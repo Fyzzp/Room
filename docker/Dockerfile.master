@@ -14,14 +14,14 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=frontend-builder /app/web/dist ./web/dist
-RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /xray-master ./cmd/master
+RUN CGO_ENABLED=0 go build -ldflags="-s -w" -o /room ./cmd
 
 # Stage 3: Runtime
 FROM alpine:3.21
 RUN apk add --no-cache ca-certificates tzdata curl
 WORKDIR /app
-COPY --from=backend-builder /xray-master .
+COPY --from=backend-builder /room .
 COPY --from=backend-builder /app/web/dist ./web/dist
 EXPOSE 12889
 ENV PORT=12889
-ENTRYPOINT ["./xray-master"]
+ENTRYPOINT ["./room"]
