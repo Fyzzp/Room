@@ -117,6 +117,7 @@ services:
       - ${INSTALL_DIR}/room:/app/room:ro
       - ${INSTALL_DIR}/web:/app/web:ro
       - ${DATA_DIR}/master:/app/data
+    working_dir: /app
     entrypoint: ["/app/room"]
 COMPOSE_EOF
 
