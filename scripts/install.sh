@@ -1,153 +1,222 @@
 #!/bin/bash
 # ==============================================
-#  Room — 主控面板一键安装脚本 v0.0.1
-#  用法: curl -fsSL https://raw.githubusercontent.com/Fyzzp/Room/main/install.sh | sudo bash
+#  Room — Xray 多机管理面板 安装脚本
+#  安装:   curl -sL https://raw.githubusercontent.com/Fyzzp/Room/main/scripts/install.sh | sudo bash
+#  更新:   curl -sL https://raw.githubusercontent.com/Fyzzp/Room/main/scripts/install.sh | sudo bash -s update
+#  卸载:   curl -sL https://raw.githubusercontent.com/Fyzzp/Room/main/scripts/install.sh | sudo bash -s uninstall
 # ==============================================
 set -e
 
 GITHUB_REPO="Fyzzp/Room"
-VERSION="${VERSION:-v0.0.1}"
-INSTALL_DIR="${INSTALL_DIR:-/opt/room}"
-DATA_DIR="${DATA_DIR:-/var/lib/room}"
-PANEL_PORT="${PANEL_PORT:-12889}"
+VERSION="" ; BINARY_NAME="" ; WEB_TAR_NAME="room-web-dist.tar.gz"
+INSTALL_DIR="/usr/local/bin" ; SERVICE_NAME="room"
+DATA_DIR="/etc/room" ; WEB_DIR="$DATA_DIR/web"
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
+info()  { echo -e "${GREEN}[INFO]${NC} $1"; }
+warn()  { echo -e "${YELLOW}[WARN]${NC} $1"; }
+error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-if [ "$EUID" -ne 0 ]; then echo -e "${RED}请使用 root 权限${NC}"; exit 1; fi
+check_root() {
+    if [ "$EUID" -ne 0 ]; then error "请使用 root: sudo bash install.sh"; exit 1; fi
+}
 
-ARCH=$(uname -m)
-case $ARCH in
-    x86_64)  ARCH_NAME="amd64" ;;
-    aarch64|arm64) ARCH_NAME="arm64" ;;
-    *) echo -e "${RED}不支持的架构: $ARCH${NC}"; exit 1 ;;
-esac
+check_arch() {
+    ARCH=$(uname -m)
+    case "$ARCH" in
+        x86_64|amd64) BINARY_NAME="room-linux-amd64" ;;
+        aarch64|arm64) BINARY_NAME="room-linux-arm64" ;;
+        *) error "不支持的架构: $ARCH"; exit 1 ;;
+    esac
+    info "架构: $ARCH → $BINARY_NAME"
+}
 
-echo -e "${GREEN}==========================================${NC}"
-echo -e "${GREEN}  Room 主控面板 v${VERSION} 一键安装${NC}"
-echo -e "${GREEN}==========================================${NC}"
-
-# === 1. 检测依赖 ===
-echo -e "${YELLOW}[1/6]${NC} 检查依赖..."
-if ! command -v docker >/dev/null 2>&1; then
-    echo "安装 Docker..."
-    curl -fsSL https://get.docker.com | bash
-fi
-
-# === 2. 创建目录 ===
-echo -e "${YELLOW}[2/6]${NC} 创建目录..."
-mkdir -p "$INSTALL_DIR" "$DATA_DIR"/{postgres,redis,master}
-
-# === 3. 下载二进制（只下载需要的主控二进制文件，不拉源码）===
-echo -e "${YELLOW}[3/6]${NC} 下载 Room 二进制..."
-BIN_URL="https://github.com/${GITHUB_REPO}/releases/download/${VERSION}/room-linux-${ARCH_NAME}"
-
-if command -v curl >/dev/null 2>&1; then
-    curl -fsSL --connect-timeout 10 --max-time 300 -o "$INSTALL_DIR/room" "$BIN_URL"
-else
-    wget -q --connect-timeout=10 --read-timeout=300 -O "$INSTALL_DIR/room" "$BIN_URL"
-fi
-chmod +x "$INSTALL_DIR/room"
-
-# 下载前端静态文件
-echo -e "${YELLOW}      ${NC} 下载前端文件..."
-WEB_URL="https://github.com/${GITHUB_REPO}/releases/download/${VERSION}/room-web-dist.tar.gz"
-if command -v curl >/dev/null 2>&1; then
-    curl -fsSL --connect-timeout 10 --max-time 120 -o /tmp/room-web.tar.gz "$WEB_URL"
-else
-    wget -q --connect-timeout=10 --read-timeout=120 -O /tmp/room-web.tar.gz "$WEB_URL"
-fi
-mkdir -p "$INSTALL_DIR/web"
-tar xzf /tmp/room-web.tar.gz -C "$INSTALL_DIR/web" 2>/dev/null || echo "前端文件解压失败，将使用嵌入式前端"
-rm -f /tmp/room-web.tar.gz
-
-# === 4. 生成配置 ===
-echo -e "${YELLOW}[4/6]${NC} 生成配置..."
-JWT_SECRET=$(cat /dev/urandom 2>/dev/null | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1 || echo "change-me-$(date +%s)")
-
-cat > "$INSTALL_DIR/docker-compose.yml" << COMPOSE_EOF
-version: '3.8'
-services:
-  postgres:
-    image: postgres:17-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: room
-      POSTGRES_PASSWORD: room
-      POSTGRES_DB: room
-    volumes:
-      - ${DATA_DIR}/postgres:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U room"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    volumes:
-      - ${DATA_DIR}/redis:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  master:
-    image: alpine:3.21  # 轻量运行时容器
-    restart: unless-stopped
-    ports:
-      - "${PANEL_PORT}:12889"
-    environment:
-      PORT: "12889"
-      DB_HOST: postgres
-      DB_PORT: "5432"
-      DB_USER: room
-      DB_PASSWORD: room
-      DB_NAME: room
-      REDIS_ADDR: redis:6379
-      JWT_SECRET: "${JWT_SECRET}"
-      LOG_LEVEL: info
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    volumes:
-      - ${INSTALL_DIR}/room:/app/room:ro
-      - ${INSTALL_DIR}/web:/app/web:ro
-      - ${DATA_DIR}/master:/app/data
-    working_dir: /app
-    entrypoint: ["/app/room"]
-COMPOSE_EOF
-
-# === 5. 启动服务 ===
-echo -e "${YELLOW}[5/6]${NC} 启动服务..."
-cd "$INSTALL_DIR"
-docker compose up -d
-
-# === 6. 等待就绪 ===
-echo -e "${YELLOW}[6/6]${NC} 等待面板启动..."
-for i in $(seq 1 30); do
-    if curl -sf "http://127.0.0.1:${PANEL_PORT}/api/health" >/dev/null 2>&1; then
-        break
+get_latest_version() {
+    if [ -z "$VERSION" ]; then
+        info "获取最新版本..."
+        VERSION=$(curl -sL "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" 2>/dev/null | grep -o '"tag_name": *"[^"]*"' | head -1 | grep -o '"[^"]*"$' | tr -d '"')
+        [ -z "$VERSION" ] && VERSION="v0.0.1"
     fi
-    sleep 2
-done
+    info "版本: $VERSION"
+}
 
-SERVER_IP=$(curl -s4 ifconfig.me 2>/dev/null || hostname -I 2>/dev/null | awk '{print $1}')
+install_deps() {
+    info "安装系统依赖 (PostgreSQL, Redis)..."
+    apt-get update -qq
+    apt-get install -y curl postgresql postgresql-client redis-server >/dev/null 2>&1
+    # 启动 PG 和 Redis
+    systemctl enable postgresql redis-server 2>/dev/null || true
+    systemctl start postgresql redis-server 2>/dev/null || true
+    info "PostgreSQL + Redis 已安装并启动"
+}
 
-echo ""
-echo -e "${GREEN}==========================================${NC}"
-echo -e "${GREEN}  Room 安装完成！${NC}"
-echo -e "${GREEN}==========================================${NC}"
-echo -e "访问:     ${GREEN}http://${SERVER_IP}:${PANEL_PORT}${NC}"
-echo -e "目录:     ${INSTALL_DIR}"
-echo -e "数据:     ${DATA_DIR}"
-echo ""
-echo "管理命令:"
-echo "  启动:   cd ${INSTALL_DIR} && docker compose up -d"
-echo "  停止:   cd ${INSTALL_DIR} && docker compose down"
-echo "  日志:   cd ${INSTALL_DIR} && docker compose logs -f"
-echo "  更新:   cd ${INSTALL_DIR} && 重新下载二进制后重启"
-echo "  卸载:   cd ${INSTALL_DIR} && docker compose down -v && rm -rf ${INSTALL_DIR} ${DATA_DIR}"
+setup_database() {
+    info "配置数据库..."
+    # 创建用户和数据库（幂等）
+    su - postgres -c "psql -tc \"SELECT 1 FROM pg_roles WHERE rolname='room'\"" 2>/dev/null | grep -q 1 || \
+        su - postgres -c "psql -c \"CREATE USER room WITH PASSWORD 'room';\"" 2>/dev/null || true
+    su - postgres -c "psql -tc \"SELECT 1 FROM pg_database WHERE datname='room'\"" 2>/dev/null | grep -q 1 || \
+        su - postgres -c "psql -c \"CREATE DATABASE room OWNER room;\"" 2>/dev/null || true
+    info "数据库用户/库已就绪"
+}
+
+download_release() {
+    info "下载 Room $VERSION..."
+    BIN_URL="https://github.com/${GITHUB_REPO}/releases/download/${VERSION}/${BINARY_NAME}"
+    WEB_URL="https://github.com/${GITHUB_REPO}/releases/download/${VERSION}/${WEB_TAR_NAME}"
+
+    for url in "$BIN_URL" "https://gh-proxy.com/$BIN_URL" "https://mirror.ghproxy.com/$BIN_URL"; do
+        if curl -fsSL --connect-timeout 10 --max-time 300 -o "/tmp/${BINARY_NAME}" "$url" 2>/dev/null; then
+            break
+        fi
+        warn "二进制镜像失败，尝试下一个..."
+    done
+
+    # 下载前端文件
+    curl -fsSL --connect-timeout 10 --max-time 120 -o "/tmp/${WEB_TAR_NAME}" "$WEB_URL" 2>/dev/null || \
+        warn "前端文件下载失败，将使用嵌入式前端"
+
+    info "下载完成"
+}
+
+install_files() {
+    info "安装文件..."
+    chmod +x "/tmp/${BINARY_NAME}"
+    mv "/tmp/${BINARY_NAME}" "$INSTALL_DIR/$SERVICE_NAME"
+
+    mkdir -p "$WEB_DIR"
+    if [ -f "/tmp/${WEB_TAR_NAME}" ]; then
+        tar xzf "/tmp/${WEB_TAR_NAME}" -C "$WEB_DIR" 2>/dev/null || true
+        rm -f "/tmp/${WEB_TAR_NAME}"
+    fi
+    rm -f "/tmp/${BINARY_NAME}"
+}
+
+create_service() {
+    PORT="${PORT:-12889}"
+    info "创建 systemd 服务（端口: $PORT）"
+
+    cat > /etc/systemd/system/${SERVICE_NAME}.service <<EOF
+[Unit]
+Description=Room - Xray 多机管理面板
+After=network.target postgresql.service redis-server.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=$DATA_DIR
+ExecStart=$INSTALL_DIR/$SERVICE_NAME
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=$SERVICE_NAME
+
+Environment="PORT=$PORT"
+Environment="DB_HOST=localhost"
+Environment="DB_PORT=5432"
+Environment="DB_USER=room"
+Environment="DB_PASSWORD=room"
+Environment="DB_NAME=room"
+Environment="REDIS_ADDR=localhost:6379"
+Environment="LOG_LEVEL=info"
+
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    systemctl daemon-reload
+}
+
+start_service() {
+    info "启动服务..."
+    systemctl enable ${SERVICE_NAME}.service 2>/dev/null || true
+    systemctl start ${SERVICE_NAME}.service
+    sleep 3
+
+    if systemctl is-active --quiet ${SERVICE_NAME}.service; then
+        info "服务启动成功"
+        return 0
+    else
+        error "服务启动失败"
+        return 1
+    fi
+}
+
+show_done() {
+    PORT=$(grep 'PORT=' /etc/systemd/system/${SERVICE_NAME}.service | sed 's/.*PORT=\([0-9]*\).*/\1/')
+    PORT=${PORT:-12889}
+    IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+    [ -z "$IP" ] && IP="YOUR_SERVER_IP"
+
+    echo ""
+    echo "======================================"
+    info "Room 安装完成！"
+    echo "======================================"
+    echo ""
+    echo "  访问:     http://${IP}:${PORT}"
+    echo "  目录:     $DATA_DIR"
+    echo "  二进制:   $INSTALL_DIR/$SERVICE_NAME"
+    echo "  数据库:   PostgreSQL (room/room@localhost:5432/room)"
+    echo "  缓存:     Redis (localhost:6379)"
+    echo ""
+    echo "管理命令:"
+    echo "  状态:     systemctl status $SERVICE_NAME"
+    echo "  日志:     journalctl -u $SERVICE_NAME -f"
+    echo "  更新:     curl -sL https://raw.githubusercontent.com/${GITHUB_REPO}/main/scripts/install.sh | sudo bash -s update"
+    echo "  卸载:     curl -sL https://raw.githubusercontent.com/${GITHUB_REPO}/main/scripts/install.sh | sudo bash -s uninstall"
+    echo ""
+}
+
+# === 更新 ===
+update_service() {
+    if [ ! -f "$INSTALL_DIR/$SERVICE_NAME" ]; then error "未安装"; exit 1; fi
+    info "更新 Room..."
+    systemctl stop ${SERVICE_NAME}.service || true
+    cp "$INSTALL_DIR/$SERVICE_NAME" "$INSTALL_DIR/${SERVICE_NAME}.bak" 2>/dev/null || true
+    download_release
+    install_files
+    systemctl daemon-reload
+    if start_service; then
+        rm -f "$INSTALL_DIR/${SERVICE_NAME}.bak"
+        show_done
+    else
+        error "更新后启动失败，回滚..."
+        mv "$INSTALL_DIR/${SERVICE_NAME}.bak" "$INSTALL_DIR/$SERVICE_NAME" 2>/dev/null || true
+        systemctl start ${SERVICE_NAME}.service || true
+        exit 1
+    fi
+}
+
+# === 卸载 ===
+uninstall_service() {
+    [ ! -f "$INSTALL_DIR/$SERVICE_NAME" ] && { error "未安装"; exit 1; }
+    info "卸载 Room..."
+    systemctl stop ${SERVICE_NAME}.service 2>/dev/null || true
+    systemctl disable ${SERVICE_NAME}.service 2>/dev/null || true
+    rm -f /etc/systemd/system/${SERVICE_NAME}.service
+    systemctl daemon-reload
+    rm -f "$INSTALL_DIR/$SERVICE_NAME" "$INSTALL_DIR/${SERVICE_NAME}.bak"
+    rm -rf "$DATA_DIR"
+    info "卸载完成（PostgreSQL/Redis 未删除）"
+}
+
+# === 主流程 ===
+main() {
+    case "$1" in
+        update)    check_root; check_arch; get_latest_version; update_service ;;
+        uninstall) check_root; uninstall_service ;;
+        *)
+            check_root; check_arch; install_deps; get_latest_version
+            setup_database; download_release; install_files; create_service
+            if start_service; then show_done
+            else error "安装失败: journalctl -u $SERVICE_NAME -n 50"; exit 1; fi
+            ;;
+    esac
+}
+
+main "$@"
