@@ -1,0 +1,223 @@
+syntax = "proto3";
+
+package agent;
+option go_package = "github.com/yourorg/xray-panel/pkg/proto/agent";
+
+// ========================
+// Agent 对外暴露的服务（主控调用 Agent）
+// ========================
+service AgentService {
+    // 健康检查
+    rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+
+    // 入站管理
+    rpc AddInbound(AddInboundRequest) returns (AddInboundResponse);
+    rpc RemoveInbound(RemoveInboundRequest) returns (RemoveInboundResponse);
+    rpc ListInbounds(ListInboundsRequest) returns (ListInboundsResponse);
+    rpc UpdateInbound(UpdateInboundRequest) returns (UpdateInboundResponse);
+
+    // 出站管理
+    rpc AddOutbound(AddOutboundRequest) returns (AddOutboundResponse);
+    rpc RemoveOutbound(RemoveOutboundRequest) returns (RemoveOutboundResponse);
+    rpc ListOutbounds(ListOutboundsRequest) returns (ListOutboundsResponse);
+
+    // 路由管理
+    rpc UpdateRouting(UpdateRoutingRequest) returns (UpdateRoutingResponse);
+
+    // 流量查询
+    rpc GetTrafficStats(GetTrafficStatsRequest) returns (GetTrafficStatsResponse);
+
+    // 用户管理（入站用户增删）
+    rpc AddUser(AddUserRequest) returns (AddUserResponse);
+    rpc RemoveUser(RemoveUserRequest) returns (RemoveUserResponse);
+
+    // 系统信息
+    rpc GetSystemInfo(GetSystemInfoRequest) returns (GetSystemInfoResponse);
+
+    // 证书操作
+    rpc DeployCert(DeployCertRequest) returns (DeployCertResponse);
+
+    // 流式操作
+    rpc InstallXray(InstallXrayRequest) returns (stream InstallProgress);
+    rpc UpgradeAgent(UpgradeAgentRequest) returns (stream UpgradeProgress);
+}
+
+// ========================
+// 主控对外暴露的服务（Agent 调用主控）
+// ========================
+service MasterService {
+    // 流量上报（双向流 - Agent 持续推送，主控间歇确认）
+    rpc ReportTraffic(stream TrafficReport) returns (stream ReportAck);
+
+    // 心跳上报
+    rpc ReportHeartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+
+    // 速度上报（流式，高频小包）
+    rpc ReportSpeed(stream SpeedReport) returns (SpeedAck);
+}
+
+// ========================
+// 消息定义
+// ========================
+
+message HealthCheckRequest {}
+message HealthCheckResponse {
+    bool ok = 1;
+    string version = 2;
+    int64 uptime_seconds = 3;
+    bool xray_running = 4;
+}
+
+// 入站
+message InboundConfig {
+    string tag = 1;
+    string protocol = 2;  // vless, vmess, trojan, shadowsocks, etc.
+    uint32 port = 3;
+    string listen = 4;
+    bytes settings = 5;     // JSON-encoded protocol-specific settings
+    bytes stream_settings = 6; // JSON-encoded StreamSettingsObject
+    bytes sniffing = 7;     // JSON-encoded SniffingObject
+}
+
+message AddInboundRequest { InboundConfig inbound = 1; }
+message AddInboundResponse { bool success = 1; string error = 2; }
+message RemoveInboundRequest { string tag = 1; }
+message RemoveInboundResponse { bool success = 1; string error = 2; }
+message ListInboundsRequest {}
+message ListInboundsResponse { repeated InboundConfig inbounds = 1; }
+message UpdateInboundRequest { InboundConfig inbound = 1; }
+message UpdateInboundResponse { bool success = 1; string error = 2; }
+
+// 出站
+message OutboundConfig {
+    string tag = 1;
+    string protocol = 2;
+    bytes settings = 3;
+    bytes stream_settings = 4;
+    bytes mux = 5;
+}
+
+message AddOutboundRequest { OutboundConfig outbound = 1; }
+message AddOutboundResponse { bool success = 1; string error = 2; }
+message RemoveOutboundRequest { string tag = 1; }
+message RemoveOutboundResponse { bool success = 1; string error = 2; }
+message ListOutboundsRequest {}
+message ListOutboundsResponse { repeated OutboundConfig outbounds = 1; }
+
+// 路由
+message RoutingConfig {
+    string domain_strategy = 1;  // AsIs, IPIfNonMatch, IPOnDemand
+    repeated RoutingRule rules = 2;
+}
+
+message RoutingRule {
+    int32 priority = 1;
+    bytes rule = 2;        // JSON-encoded RuleObject
+    string outbound_tag = 3;
+    bool enabled = 4;
+}
+
+message UpdateRoutingRequest { RoutingConfig routing = 1; }
+message UpdateRoutingResponse { bool success = 1; string error = 2; }
+
+// 流量统计
+message TrafficStat {
+    string name = 1;   // e.g. "user>>>email>>>traffic>>>uplink"
+    int64 value = 2;   // bytes
+}
+
+message GetTrafficStatsRequest {
+    string pattern = 1; // 过滤模式，空=全部
+    bool reset = 2;     // 是否清零
+}
+message GetTrafficStatsResponse { repeated TrafficStat stats = 1; }
+
+// 用户
+message AddUserRequest {
+    string inbound_tag = 1;
+    string email = 2;
+    string uuid = 3;    // VLESS/VMess
+    string password = 4; // Trojan
+    int32 level = 5;
+}
+message AddUserResponse { bool success = 1; string error = 2; }
+message RemoveUserRequest {
+    string inbound_tag = 1;
+    string email = 2;
+}
+message RemoveUserResponse { bool success = 1; string error = 2; }
+
+// 系统信息
+message GetSystemInfoRequest {}
+message GetSystemInfoResponse {
+    string os = 1;
+    string arch = 2;
+    int64 cpu_cores = 3;
+    int64 memory_total = 4;
+    int64 memory_used = 5;
+    int64 disk_total = 6;
+    int64 disk_used = 7;
+    string xray_version = 8;
+    string agent_version = 9;
+}
+
+// 证书
+message DeployCertRequest {
+    string domain = 1;
+    bytes cert_pem = 2;
+    bytes key_pem = 3;
+    string cert_path = 4;
+    string key_path = 5;
+    string reload = 6; // nginx, xray, both, none
+}
+message DeployCertResponse { bool success = 1; string error = 2; }
+
+// 流式操作
+message InstallXrayRequest { string version = 1; }
+message UpgradeAgentRequest { string version = 1; }
+message InstallProgress {
+    string stage = 1;
+    int32 percent = 2;
+    string message = 3;
+    bool done = 4;
+    string error = 5;
+}
+
+// 流量上报 (Agent → Master)
+message TrafficReport {
+    string server_token = 1;
+    repeated TrafficStat stats = 2;
+    int64 timestamp_unix = 3;
+}
+
+message ReportAck {
+    bool success = 1;
+    int64 server_time_unix = 2;
+    string message = 3;
+}
+
+// 心跳
+message HeartbeatRequest {
+    string server_token = 1;
+    int64 boot_time_unix = 2;
+    int64 local_time_unix = 3;
+    string public_ipv4 = 4;
+    string public_ipv6 = 5;
+    bool xray_running = 6;
+    string agent_version = 7;
+}
+message HeartbeatResponse {
+    bool success = 1;
+    int64 server_time_unix = 2;
+    bool token_expires_soon = 3;
+    int64 token_expires_at_unix = 4;
+}
+
+// 速度上报
+message SpeedReport {
+    string server_token = 1;
+    int64 upload_bytes_per_sec = 2;
+    int64 download_bytes_per_sec = 3;
+    int64 timestamp_unix = 4;
+}
+message SpeedAck { bool received = 1; }

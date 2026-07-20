@@ -1,0 +1,35 @@
+# Binaries
+bin/
+*.exe
+*.dll
+*.so
+*.dylib
+Room
+Room-Agent
+
+# Test binary
+*.test
+
+# Output of go coverage
+*.out
+
+# Dependency directories
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build
+web/dist/
+web/node_modules/
+
+# Data
+data/
+*.db

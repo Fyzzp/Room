@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+/* Xray Panel 自定义样式 */
+:root {
+  --primary: 215 70% 50%;
+  --background: 0 0% 100%;
+  --foreground: 222 47% 11%;
+}
+
+.dark {
+  --background: 222 47% 5%;
+  --foreground: 210 40% 98%;
+}
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
