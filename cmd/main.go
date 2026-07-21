@@ -199,7 +199,18 @@ func main() {
 	h := handler.NewMasterHandler(db)
 
 	// 服务器管理（需要登录）
-	mux.HandleFunc("/api/servers", authMiddleware(cfg.JWTSecret, h.ListServers))
+	mux.HandleFunc("/api/servers", authMiddleware(cfg.JWTSecret, func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			h.ListServers(w, r)
+		case http.MethodPost:
+			h.CreateServer(w, r)
+		case http.MethodDelete:
+			h.DeleteServer(w, r)
+		default:
+			jsonError(w, 405, "Method not allowed")
+		}
+	}))
 
 	// 入站/出站/路由管理
 	mux.HandleFunc("/api/inbounds", func(w http.ResponseWriter, r *http.Request) {
@@ -348,6 +359,16 @@ func generateRandomSecret(length int) string {
 	return string(b)
 }
 
+// sanitizeHost 去除 Host header 中的非法字符，防止 YAML 注入
+func sanitizeHost(host string) string {
+	return strings.Map(func(r rune) rune {
+		if strings.ContainsRune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-:[]", r) {
+			return r
+		}
+		return -1
+	}, host)
+}
+
 // shellEscape 转义字符串以防止 shell 命令注入
 // 将单引号替换为 '\'' 并用单引号包裹整个字符串
 func shellEscape(s string) string {
@@ -461,8 +482,8 @@ func runMigrations(db *sql.DB) error {
 
 // generateInstallScript 生成 Agent 一键安装脚本
 func generateInstallScript(masterHost, token string) string {
-	// shell-escape 防止命令注入
-	masterHost = shellEscape(masterHost)
+	// token 需要转义防止注入；masterHost 来自 HTTP Host header，已由 Go 校验
+	masterHost = sanitizeHost(masterHost)
 	token = shellEscape(token)
 
 	return fmt.Sprintf(`#!/bin/bash

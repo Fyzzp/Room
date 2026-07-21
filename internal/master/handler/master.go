@@ -97,6 +97,10 @@ func (h *MasterHandler) ListServers(w http.ResponseWriter, r *http.Request) {
 		}
 		servers = append(servers, s)
 	}
+	if err := rows.Err(); err != nil {
+		jsonError(w, 500, "数据库错误")
+		return
+	}
 
 	if servers == nil {
 		servers = []Server{}
