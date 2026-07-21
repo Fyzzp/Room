@@ -40,6 +40,25 @@ get_latest_version() {
 
 # 交互式收集数据库和 Redis 配置
 collect_config() {
+    # 非交互模式：跳过所有提示，直接使用环境变量/默认值
+    if [ ! -t 0 ]; then
+        [ -z "$DB_HOST" ] && DB_HOST="localhost"
+        [ -z "$DB_PORT" ] && DB_PORT="5432"
+        [ -z "$DB_NAME" ] && DB_NAME="room"
+        [ -z "$DB_USER" ] && DB_USER="room"
+        [ -z "$DB_PASS" ] && DB_PASS=$(cat /dev/urandom 2>/dev/null | tr -dc 'a-zA-Z0-9' | fold -w 20 | head -n 1)
+        [ -z "$DB_PASS" ] && DB_PASS="room-$(date +%s)"
+        [ -z "$REDIS_HOST" ] && REDIS_HOST="localhost"
+        [ -z "$REDIS_PORT" ] && REDIS_PORT="6379"
+        [ -z "$REDIS_PREFIX" ] && REDIS_PREFIX="room:"
+        [ -z "$REDIS_USER" ] && REDIS_USER=""
+        [ -z "$REDIS_PASS" ] && REDIS_PASS=""
+        [ -z "$ADMIN_EMAIL" ] && ADMIN_EMAIL="admin@room.local"
+        [ -z "$ADMIN_PASS" ] && ADMIN_PASS=$(cat /dev/urandom 2>/dev/null | tr -dc 'a-zA-Z0-9' | fold -w 16 | head -n 1)
+        [ -z "$PANEL_PORT" ] && PANEL_PORT="12889"
+        info "非交互模式，使用环境变量/默认值"
+        return
+    fi
     echo ""
     echo -e "${GREEN}==========================================${NC}"
     echo -e "${GREEN}  数据库 & 缓存 配置${NC}"
