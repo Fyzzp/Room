@@ -67,6 +67,16 @@ collect_config() {
     if [ -z "$REDIS_USER" ]; then ask "Redis 用户名 (留空=无)"; read REDIS_USER; fi
     if [ -z "$REDIS_PASS" ]; then ask "Redis 密码 (留空=无)"; read REDIS_PASS; fi
 
+    echo ""
+    echo -e "${BLUE}管理员账户${NC}"
+    if [ -z "$ADMIN_EMAIL" ]; then ask "管理员邮箱"; read ADMIN_EMAIL; [ -z "$ADMIN_EMAIL" ] && ADMIN_EMAIL="admin@room.local"; fi
+    if [ -z "$ADMIN_PASS" ]; then ask "管理员密码 (留空自动生成)"; read ADMIN_PASS; fi
+    if [ -z "$ADMIN_PASS" ]; then
+        ADMIN_PASS=$(cat /dev/urandom 2>/dev/null | tr -dc 'a-zA-Z0-9' | fold -w 16 | head -n 1)
+        [ -z "$ADMIN_PASS" ] && ADMIN_PASS="admin-$(date +%s)"
+        info "已生成管理员密码: $ADMIN_PASS"
+    fi
+
     # 面板端口
     if [ -z "$PANEL_PORT" ]; then ask "面板端口"; read PANEL_PORT; [ -z "$PANEL_PORT" ] && PANEL_PORT="12889"; fi
 
@@ -91,6 +101,8 @@ save_config() {
   "redis_user": "$REDIS_USER",
   "redis_password": "$REDIS_PASS",
   "jwt_secret": "$(cat /dev/urandom 2>/dev/null | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1)",
+  "admin_email": "$ADMIN_EMAIL",
+  "admin_password": "$ADMIN_PASS",
   "log_level": "info"
 }
 EOF
@@ -213,6 +225,8 @@ Environment="DB_NAME=$DB_NAME"
 Environment="REDIS_ADDR=$REDIS_ADDR"
 Environment="REDIS_PREFIX=$REDIS_PREFIX"
 Environment="REDIS_PASSWORD=$REDIS_PASS"
+Environment="ADMIN_EMAIL=$ADMIN_EMAIL"
+Environment="ADMIN_PASSWORD=$ADMIN_PASS"
 Environment="LOG_LEVEL=info"
 
 NoNewPrivileges=true

@@ -100,7 +100,7 @@ export function RegisterPage() {
           </div>
           <h2 className="text-2xl font-semibold mb-4">开始使用 Room</h2>
           <p className="text-gray-400 text-lg mb-10 leading-relaxed">
-            注册账户，首个用户自动成为管理员。
+            注册账户
           </p>
           <div className="space-y-6">
             {[

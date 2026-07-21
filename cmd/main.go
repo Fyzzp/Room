@@ -84,6 +84,21 @@ func main() {
 		log.Fatalf("Failed to run migrations: %v", err)
 	}
 
+	// 预置管理员账户（从环境变量，安装脚本设置）
+	adminEmail := os.Getenv("ADMIN_EMAIL")
+	adminPass := os.Getenv("ADMIN_PASSWORD")
+	if adminEmail != "" && adminPass != "" {
+		var existing int
+		db.QueryRow("SELECT COUNT(*) FROM users").Scan(&existing)
+		if existing == 0 {
+			hash, err := bcrypt.GenerateFromPassword([]byte(adminPass), bcrypt.DefaultCost)
+			if err == nil {
+				db.Exec("INSERT INTO users (email, password_hash, role) VALUES ($1, $2, 'admin') ON CONFLICT (email) DO NOTHING", adminEmail, string(hash))
+				log.Printf("[INIT] Admin account created: %s", adminEmail)
+			}
+		}
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -164,17 +179,8 @@ func main() {
 			return
 		}
 
-		// 首个注册用户为 admin
-		var count int
-		err = db.QueryRow("SELECT COUNT(*) FROM users").Scan(&count)
-		if err != nil {
-			jsonError(w, 500, "数据库错误")
-			return
-		}
+		// 所有注册用户均为普通用户（管理员由安装时预置）
 		role := "user"
-		if count == 0 {
-			role = "admin"
-		}
 
 		hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 		if err != nil {
