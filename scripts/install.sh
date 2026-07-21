@@ -127,7 +127,7 @@ setup_database() {
         su - postgres -c "psql -c \"CREATE USER \\\"$DB_USER\\\" WITH PASSWORD '${DB_PASS//\'/\'\'}';\""
     su - postgres -c "psql -tc \"SELECT 1 FROM pg_database WHERE datname='$DB_NAME'\"" 2>/dev/null | grep -q 1 || \
         su - postgres -c "psql -c \"CREATE DATABASE \\\"$DB_NAME\\\" OWNER \\\"$DB_USER\\\";\""
-    su - postgres -c "psql -c \"ALTER USER $DB_USER WITH PASSWORD '${DB_PASS//\'/\'\'}';\""
+    su - postgres -c "psql -c \"ALTER USER \\\"$DB_USER\\\" WITH PASSWORD '${DB_PASS//\'/\'\'}';\""
     info "数据库就绪"
 }
 
