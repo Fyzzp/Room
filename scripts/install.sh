@@ -294,6 +294,8 @@ update_service() {
         DB_PASS=$(grep -oP 'DB_PASSWORD=\K[^"]*' /etc/systemd/system/${SERVICE_NAME}.service 2>/dev/null || echo "room")
         PANEL_PORT=$(grep -oP 'PORT=\K[^"]*' /etc/systemd/system/${SERVICE_NAME}.service 2>/dev/null || echo "12889")
         REDIS_HOST="localhost"; REDIS_PORT="6379"; REDIS_PREFIX="room:"; REDIS_USER=""; REDIS_PASS=""
+        ADMIN_EMAIL=$(grep -oP 'ADMIN_EMAIL=\K[^"]*' /etc/systemd/system/${SERVICE_NAME}.service 2>/dev/null || echo "admin@room.local")
+        ADMIN_PASS=$(grep -oP 'ADMIN_PASSWORD=\K[^"]*' /etc/systemd/system/${SERVICE_NAME}.service 2>/dev/null || echo "")
     fi
 
     systemctl stop ${SERVICE_NAME}.service || true
