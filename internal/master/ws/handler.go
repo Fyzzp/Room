@@ -145,8 +145,6 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		log.Printf("[Master WS] Received: type=%s payload=%s", msg.Type, string(msg.Payload))
-
 		h.handleMessage(agentConn, msg)
 	}
 }
