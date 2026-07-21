@@ -1,33 +1,118 @@
 import { Link } from 'react-router-dom'
-import { Server, Plus, Wifi, WifiOff, Settings, Trash2 } from 'lucide-react'
-import { useState } from 'react'
+import { Server, Plus, Wifi, WifiOff, Settings, X } from 'lucide-react'
+import { useState, useEffect } from 'react'
 
-const mockServers = [
-  { id: 1, name: '东京-01', ip: '160.25.135.232', port: 23889, status: 'online', xray: 'external', traffic: '12.5 GB', uptime: '3天 12时' },
-]
+interface ServerItem {
+  id: number
+  name: string
+  token: string
+  ip_address: string | null
+  listen_port: number
+  connection_mode: string
+  xray_mode: string
+  status: string
+  upload_speed: number
+  download_speed: number
+}
 
 export function ServersPage() {
-  const [servers] = useState(mockServers)
+  const [servers, setServers] = useState<ServerItem[]>([])
+  const [showForm, setShowForm] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [form, setForm] = useState({ name: '', connection_mode: 'websocket', xray_mode: 'external' })
+
+  const token = localStorage.getItem('token') || ''
+
+  const fetchServers = async () => {
+    try {
+      const res = await fetch('/api/servers', { headers: { Authorization: `Bearer ${token}` } })
+      const data = await res.json()
+      setServers(data.servers || [])
+    } catch { /* ignore */ }
+  }
+
+  useEffect(() => { fetchServers() }, [])
+
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!form.name) { setError('请输入服务器名称'); return }
+    setLoading(true); setError('')
+    try {
+      const res = await fetch('/api/servers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(form),
+      })
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error || '创建失败') }
+      setShowForm(false)
+      setForm({ name: '', connection_mode: 'websocket', xray_mode: 'external' })
+      fetchServers()
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : '创建失败')
+    } finally { setLoading(false) }
+  }
 
   return (
     <div className="space-y-6">
-      {/* 头部 */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-gray-800">服务器管理</h2>
           <p className="text-gray-500 mt-1">管理您的所有 Xray 远程节点</p>
         </div>
-        <button className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl font-medium hover:from-blue-700 hover:to-blue-800 transition-all shadow-lg shadow-blue-500/25">
+        <button onClick={() => setShowForm(true)} className="flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl font-medium hover:from-blue-700 hover:to-blue-800 transition-all shadow-lg shadow-blue-500/25">
           <Plus className="w-4 h-4" /> 添加服务器
         </button>
       </div>
 
-      {/* 统计摘要 */}
+      {/* 添加表单弹窗 */}
+      {showForm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setShowForm(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-gray-800">添加服务器</h3>
+              <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+            </div>
+            {error && <div className="mb-3 p-2 bg-red-50 text-red-600 rounded-lg text-sm">{error}</div>}
+            <form onSubmit={handleCreate} className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">服务器名称</label>
+                <input value={form.name} onChange={e => setForm({...form, name: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none"
+                  placeholder="例: 东京-01" required />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">连接模式</label>
+                <select value={form.connection_mode} onChange={e => setForm({...form, connection_mode: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none">
+                  <option value="websocket">WebSocket (推荐)</option>
+                  <option value="http">HTTP</option>
+                  <option value="pull">Pull</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-600 mb-1">Xray 模式</label>
+                <select value={form.xray_mode} onChange={e => setForm({...form, xray_mode: e.target.value})}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none">
+                  <option value="external">External (独立安装)</option>
+                  <option value="embedded">Embedded (内嵌)</option>
+                </select>
+              </div>
+              <button type="submit" disabled={loading}
+                className="w-full py-2.5 bg-blue-600 text-white rounded-xl font-medium hover:bg-blue-700 disabled:opacity-50">
+                {loading ? '创建中...' : '创建服务器'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* 统计 */}
       <div className="grid grid-cols-3 gap-4">
         {[
           { label: '总数', value: servers.length, color: 'text-blue-600' },
-          { label: '在线', value: servers.filter(s => s.status === 'online').length, color: 'text-green-600' },
-          { label: '离线', value: servers.filter(s => s.status !== 'online').length, color: 'text-red-600' },
+          { label: '在线', value: servers.filter(s => s.status === 'online' || s.status === 'connected').length, color: 'text-green-600' },
+          { label: '离线', value: servers.filter(s => s.status !== 'online' && s.status !== 'connected').length, color: 'text-red-600' },
         ].map(({ label, value, color }) => (
           <div key={label} className="bg-white rounded-2xl border border-gray-100 p-4 text-center shadow-sm">
             <div className={`text-2xl font-bold ${color}`}>{value}</div>
@@ -36,78 +121,46 @@ export function ServersPage() {
         ))}
       </div>
 
-      {/* 服务器卡片列表 */}
+      {/* 服务器列表 */}
       {servers.length === 0 ? (
         <div className="bg-white rounded-2xl border border-gray-200 border-dashed p-16 text-center">
           <Server className="w-12 h-12 text-gray-300 mx-auto mb-4" />
           <p className="text-gray-500 mb-4">还没有服务器，添加第一台开始吧</p>
-          <button className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm hover:bg-blue-700 transition-colors">
+          <button onClick={() => setShowForm(true)} className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm hover:bg-blue-700 transition-colors">
             <Plus className="w-4 h-4" /> 添加服务器
           </button>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {servers.map((server) => (
-            <div key={server.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-all group">
-              {/* 卡片头 */}
+          {servers.map((s) => (
+            <div key={s.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-all group">
               <div className="p-5 pb-4">
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-3">
                     <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${
-                      server.status === 'online' ? 'bg-gradient-to-br from-emerald-400 to-emerald-600' : 'bg-gradient-to-br from-gray-400 to-gray-500'
+                      s.status === 'online' || s.status === 'connected' ? 'bg-gradient-to-br from-emerald-400 to-emerald-600' : 'bg-gradient-to-br from-gray-400 to-gray-500'
                     }`}>
                       <Server className="w-6 h-6 text-white" />
                     </div>
                     <div>
-                      <h3 className="font-semibold text-gray-800">{server.name}</h3>
-                      <p className="text-xs text-gray-400 font-mono">{server.ip}</p>
+                      <h3 className="font-semibold text-gray-800">{s.name}</h3>
+                      <p className="text-xs text-gray-400 font-mono">{s.ip_address || '等待连接'}</p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    {server.status === 'online' ? (
-                      <span className="flex items-center gap-1 px-2 py-0.5 bg-green-50 text-green-700 rounded-lg text-xs font-medium">
-                        <Wifi className="w-3 h-3" /> 在线
-                      </span>
-                    ) : (
-                      <span className="flex items-center gap-1 px-2 py-0.5 bg-red-50 text-red-700 rounded-lg text-xs font-medium">
-                        <WifiOff className="w-3 h-3" /> 离线
-                      </span>
-                    )}
-                  </div>
+                  <span className={`flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs font-medium ${s.status === 'online' || s.status === 'connected' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                    {s.status === 'online' || s.status === 'connected' ? <><Wifi className="w-3 h-3" />在线</> : <><WifiOff className="w-3 h-3" />{s.status === 'pending' ? '待连接' : '离线'}</>}
+                  </span>
                 </div>
-
-                {/* 信息行 */}
                 <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div className="bg-gray-50 rounded-xl p-2.5">
-                    <div className="text-gray-400 text-xs mb-0.5">Xray 模式</div>
-                    <div className="text-gray-700 font-medium">{server.xray}</div>
-                  </div>
-                  <div className="bg-gray-50 rounded-xl p-2.5">
-                    <div className="text-gray-400 text-xs mb-0.5">流量</div>
-                    <div className="text-gray-700 font-medium">{server.traffic}</div>
-                  </div>
-                  <div className="bg-gray-50 rounded-xl p-2.5">
-                    <div className="text-gray-400 text-xs mb-0.5">运行时间</div>
-                    <div className="text-gray-700 font-medium">{server.uptime}</div>
-                  </div>
-                  <div className="bg-gray-50 rounded-xl p-2.5">
-                    <div className="text-gray-400 text-xs mb-0.5">端口</div>
-                    <div className="text-gray-700 font-mono font-medium text-xs">{server.port}</div>
-                  </div>
+                  <div className="bg-gray-50 rounded-xl p-2.5"><div className="text-gray-400 text-xs mb-0.5">Xray</div><div className="text-gray-700 font-medium">{s.xray_mode}</div></div>
+                  <div className="bg-gray-50 rounded-xl p-2.5"><div className="text-gray-400 text-xs mb-0.5">端口</div><div className="text-gray-700 font-mono font-medium text-xs">{s.listen_port}</div></div>
+                  <div className="col-span-2 bg-gray-50 rounded-xl p-2.5"><div className="text-gray-400 text-xs mb-0.5">Token</div><div className="text-gray-700 font-mono text-xs truncate">{s.token}</div></div>
                 </div>
               </div>
-
-              {/* 操作栏 */}
               <div className="px-5 py-3 border-t border-gray-100 flex items-center gap-2">
-                <Link
-                  to={`/servers/${server.id}/xray`}
-                  className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-blue-50 text-blue-700 rounded-xl text-sm font-medium hover:bg-blue-100 transition-colors"
-                >
+                <Link to={`/servers/${s.id}/xray`} className="flex-1 flex items-center justify-center gap-1.5 py-2 bg-blue-50 text-blue-700 rounded-xl text-sm font-medium hover:bg-blue-100 transition-colors">
                   <Settings className="w-4 h-4" /> Xray 配置
                 </Link>
-                <button className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors">
-                  <Trash2 className="w-4 h-4" />
-                </button>
               </div>
             </div>
           ))}
