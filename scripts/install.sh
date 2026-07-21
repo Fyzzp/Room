@@ -102,10 +102,20 @@ install_files() {
 
 create_service() {
     PORT="${PORT:-12889}"
-    if [ ! -f "$DATA_DIR/.db_password" ]; then
-        error "密码文件缺失: $DATA_DIR/.db_password"; exit 1
+    # 获取密码：优先 .db_password，否则从现有 systemd unit 提取（旧版迁移），最后回退 room
+    if [ -f "$DATA_DIR/.db_password" ]; then
+        DB_PASS=$(cat "$DATA_DIR/.db_password")
+    elif [ -f /etc/systemd/system/${SERVICE_NAME}.service ]; then
+        DB_PASS=$(grep -oP 'DB_PASSWORD=\K[^"]*' /etc/systemd/system/${SERVICE_NAME}.service 2>/dev/null || echo "room")
+        echo "$DB_PASS" > "$DATA_DIR/.db_password"
+        chmod 600 "$DATA_DIR/.db_password"
+        info "从旧部署迁移密码到 $DATA_DIR/.db_password"
+    else
+        DB_PASS="room"
+        echo "$DB_PASS" > "$DATA_DIR/.db_password"
+        chmod 600 "$DATA_DIR/.db_password"
+        warn "未找到密码文件，使用默认密码（请登录后修改）"
     fi
-    DB_PASS=$(cat "$DATA_DIR/.db_password")
     info "创建 systemd 服务（端口: $PORT）"
 
     cat > /etc/systemd/system/${SERVICE_NAME}.service <<EOF
