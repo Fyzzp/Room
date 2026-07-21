@@ -123,23 +123,31 @@ setup_database() {
     if ! [[ "$DB_USER" =~ ^[a-zA-Z0-9_]+$ ]]; then error "DB_USER 仅允许字母数字下划线"; exit 1; fi
     if ! [[ "$DB_NAME" =~ ^[a-zA-Z0-9_]+$ ]]; then error "DB_NAME 仅允许字母数字下划线"; exit 1; fi
 
-    su - postgres -c "psql -tc \"SELECT 1 FROM pg_roles WHERE rolname='$DB_USER'\"" 2>/dev/null | grep -q 1 || \
-        su - postgres -c "psql -c \"CREATE USER \\\"$DB_USER\\\" WITH PASSWORD '${DB_PASS//\'/\'\'}';\""
-    su - postgres -c "psql -tc \"SELECT 1 FROM pg_database WHERE datname='$DB_NAME'\"" 2>/dev/null | grep -q 1 || \
-        su - postgres -c "psql -c \"CREATE DATABASE \\\"$DB_NAME\\\" OWNER \\\"$DB_USER\\\";\""
-    su - postgres -c "psql -c \"ALTER USER \\\"$DB_USER\\\" WITH PASSWORD '${DB_PASS//\'/\'\'}';\""
+    # 通过 heredoc 传 SQL 到 psql，避免 su -c 的 shell 命令注入
+    run_psql() {
+        su - postgres -c "psql" <<SQL_EOF
+$1
+SQL_EOF
+    }
+
+    run_psql "SELECT 1 FROM pg_roles WHERE rolname='$DB_USER';" 2>/dev/null | grep -q 1 || \
+        run_psql "CREATE USER \"$DB_USER\" WITH PASSWORD '${DB_PASS//\'/\'\'}';"
+    run_psql "SELECT 1 FROM pg_database WHERE datname='$DB_NAME';" 2>/dev/null | grep -q 1 || \
+        run_psql "CREATE DATABASE \"$DB_NAME\" OWNER \"$DB_USER\";"
+    run_psql "ALTER USER \"$DB_USER\" WITH PASSWORD '${DB_PASS//\'/\'\'}';"
     info "数据库就绪"
 }
 
 # Redis 密码配置（如果有）
 setup_redis() {
     if [ -n "$REDIS_PASS" ]; then
+        # 使用 | 作为 sed 分隔符，防止密码中的 / 破坏表达式
         if grep -q "^requirepass" /etc/redis/redis.conf 2>/dev/null; then
-            sed -i "s/^requirepass.*/requirepass $REDIS_PASS/" /etc/redis/redis.conf
+            sed -i "s|^requirepass.*|requirepass $REDIS_PASS|" /etc/redis/redis.conf
         else
-            echo "requirepass $REDIS_PASS" >> /etc/redis/redis.conf
+            printf 'requirepass %s\n' "$REDIS_PASS" >> /etc/redis/redis.conf
         fi
-        systemctl restart redis-server 2>/dev/null || true
+        systemctl restart redis-server 2>/dev/null || systemctl restart redis 2>/dev/null || true
         info "Redis 密码已设置"
     fi
 }
@@ -264,12 +272,16 @@ show_done() {
 update_service() {
     if [ ! -f "$INSTALL_DIR/room" ]; then error "未安装"; exit 1; fi
     info "更新 Room..."
-    # 加载已有配置（如果存在）
-    [ -f "$CONFIG_FILE" ] && eval "$(python3 -c "import json;c=json.load(open('$CONFIG_FILE'));[print(f'{k.upper()}=\"{v}\"') for k,v in c.items()]" 2>/dev/null || true)"
-    PANEL_PORT="${PANEL_PORT:-12889}"
-    [ -z "$DB_HOST" ] && DB_HOST="localhost"; [ -z "$DB_PORT" ] && DB_PORT="5432"
-    [ -z "$DB_NAME" ] && DB_NAME="room"; [ -z "$DB_USER" ] && DB_USER="room"
-    [ -z "$DB_PASS" ] && DB_PASS="room"
+    # 加载已有配置（从 systemd Environment 安全提取）
+    if [ -f /etc/systemd/system/${SERVICE_NAME}.service ]; then
+        DB_HOST=$(grep -oP 'DB_HOST=\K[^"]*' /etc/systemd/system/${SERVICE_NAME}.service 2>/dev/null || echo "localhost")
+        DB_PORT=$(grep -oP 'DB_PORT=\K[^"]*' /etc/systemd/system/${SERVICE_NAME}.service 2>/dev/null || echo "5432")
+        DB_NAME=$(grep -oP 'DB_NAME=\K[^"]*' /etc/systemd/system/${SERVICE_NAME}.service 2>/dev/null || echo "room")
+        DB_USER=$(grep -oP 'DB_USER=\K[^"]*' /etc/systemd/system/${SERVICE_NAME}.service 2>/dev/null || echo "room")
+        DB_PASS=$(grep -oP 'DB_PASSWORD=\K[^"]*' /etc/systemd/system/${SERVICE_NAME}.service 2>/dev/null || echo "room")
+        PANEL_PORT=$(grep -oP 'PORT=\K[^"]*' /etc/systemd/system/${SERVICE_NAME}.service 2>/dev/null || echo "12889")
+        REDIS_HOST="localhost"; REDIS_PORT="6379"; REDIS_PREFIX="room:"; REDIS_USER=""; REDIS_PASS=""
+    fi
 
     systemctl stop ${SERVICE_NAME}.service || true
     cp "$INSTALL_DIR/room" "$INSTALL_DIR/room.bak" 2>/dev/null || true
