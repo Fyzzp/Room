@@ -291,8 +291,12 @@ show_done() {
 update_service() {
     if [ ! -f "$INSTALL_DIR/room" ]; then error "未安装"; exit 1; fi
     info "更新 Room..."
-    # 加载已有配置（从 systemd Environment 安全提取）
-    if [ -f /etc/systemd/system/${SERVICE_NAME}.service ]; then
+    # 加载已有配置（优先 .env 文件，fallback 从旧 systemd unit 迁移）
+    if [ -f "$INSTALL_DIR/.env" ]; then
+        set -a; source "$INSTALL_DIR/.env"; set +a
+        info "已加载配置: $INSTALL_DIR/.env"
+    elif [ -f /etc/systemd/system/${SERVICE_NAME}.service ]; then
+        # 旧版迁移: 从 systemd Environment= 提取
         DB_HOST=$(grep -oP 'DB_HOST=\K[^"]*' /etc/systemd/system/${SERVICE_NAME}.service 2>/dev/null || echo "localhost")
         DB_PORT=$(grep -oP 'DB_PORT=\K[^"]*' /etc/systemd/system/${SERVICE_NAME}.service 2>/dev/null || echo "5432")
         DB_NAME=$(grep -oP 'DB_NAME=\K[^"]*' /etc/systemd/system/${SERVICE_NAME}.service 2>/dev/null || echo "room")
@@ -300,8 +304,7 @@ update_service() {
         DB_PASS=$(grep -oP 'DB_PASSWORD=\K[^"]*' /etc/systemd/system/${SERVICE_NAME}.service 2>/dev/null || echo "room")
         PANEL_PORT=$(grep -oP 'PORT=\K[^"]*' /etc/systemd/system/${SERVICE_NAME}.service 2>/dev/null || echo "12889")
         REDIS_HOST="localhost"; REDIS_PORT="6379"; REDIS_PREFIX="room:"; REDIS_USER=""; REDIS_PASS=""
-        ADMIN_EMAIL=$(grep -oP 'ADMIN_EMAIL=\K[^"]*' /etc/systemd/system/${SERVICE_NAME}.service 2>/dev/null || echo "admin@room.local")
-        ADMIN_PASS=$(grep -oP 'ADMIN_PASSWORD=\K[^"]*' /etc/systemd/system/${SERVICE_NAME}.service 2>/dev/null || echo "")
+        ADMIN_EMAIL="admin@room.local"; ADMIN_PASS=""
     fi
 
     systemctl stop ${SERVICE_NAME}.service || true
