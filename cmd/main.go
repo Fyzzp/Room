@@ -231,9 +231,26 @@ func main() {
 		json.NewEncoder(w).Encode(map[string]string{"message": "TODO: ws upgrade"})
 	})
 
-	// 静态文件（嵌入式 React 前端）
-	// TODO: 在生产构建中嵌入前端 dist 目录
-	mux.Handle("/", http.FileServer(http.Dir("./web/dist")))
+	// 静态文件（SPA fallback: 非文件路径返回 index.html）
+	fs := http.FileServer(http.Dir("./web/dist"))
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		// API 路由不处理
+		if len(r.URL.Path) >= 5 && r.URL.Path[:5] == "/api/" {
+			http.NotFound(w, r)
+			return
+		}
+		// 尝试直接服务文件
+		path := "./web/dist" + r.URL.Path
+		if r.URL.Path == "/" {
+			path = "./web/dist/index.html"
+		}
+		if _, err := os.Stat(path); err == nil {
+			fs.ServeHTTP(w, r)
+			return
+		}
+		// SPA fallback: 非文件路径返回 index.html
+		http.ServeFile(w, r, "./web/dist/index.html")
+	})
 
 	// CORS 中间件
 	handler := corsMiddleware(mux)
