@@ -164,7 +164,7 @@ func main() {
 		// 首个注册用户为 admin
 		var count int
 		err = db.QueryRow("SELECT COUNT(*) FROM users").Scan(&count)
-		if err != nil && err != sql.ErrNoRows {
+		if err != nil {
 			jsonError(w, 500, "数据库错误")
 			return
 		}
