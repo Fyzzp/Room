@@ -58,7 +58,7 @@ func main() {
 			"Set JWT_SECRET environment variable for persistence across restarts.")
 	}
 
-	log.Printf("=== Xray Panel Master v0.1.0 ===")
+	log.Printf("=== Room Panel Master v0.1.0 ===")
 	log.Printf("Port: %s | DB: %s:%s/%s | Redis: %s", cfg.Port, cfg.DBHost, cfg.DBPort, cfg.DBName, cfg.RedisAddr)
 
 	// 连接 PostgreSQL
@@ -494,7 +494,7 @@ func generateInstallScript(masterHost, token string) string {
 
 	return fmt.Sprintf(`#!/bin/bash
 set -e
-echo "=== Xray Panel Agent Installer ==="
+echo "=== Room Agent Installer ==="
 echo "Master: %s"
 echo ""
 
@@ -529,7 +529,7 @@ EOF
 echo "[3/3] Creating service..."
 cat > /etc/systemd/system/room-agent.service << EOF
 [Unit]
-Description=Xray Panel Agent
+Description=Room Agent
 After=network.target
 [Service]
 Type=simple
