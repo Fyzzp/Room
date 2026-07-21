@@ -106,9 +106,9 @@ create_service() {
     if [ -f "$DATA_DIR/.db_password" ]; then
         DB_PASS=$(cat "$DATA_DIR/.db_password")
     elif [ -f /etc/systemd/system/${SERVICE_NAME}.service ]; then
-        DB_PASS=$(grep -oP 'DB_PASSWORD=\K[^"]*' /etc/systemd/system/${SERVICE_NAME}.service 2>/dev/null || echo "room")
-        echo "$DB_PASS" > "$DATA_DIR/.db_password"
-        chmod 600 "$DATA_DIR/.db_password"
+        DB_PASS=$(grep -oP 'DB_PASSWORD=\K[^"]*' /etc/systemd/system/${SERVICE_NAME}.service 2>/dev/null || true)
+        [ -z "$DB_PASS" ] && DB_PASS="room"
+        (umask 077; echo "$DB_PASS" > "$DATA_DIR/.db_password")
         info "从旧部署迁移密码到 $DATA_DIR/.db_password"
     else
         DB_PASS="room"
