@@ -294,6 +294,15 @@ update_service() {
     # 加载已有配置（优先 .env 文件，fallback 从旧 systemd unit 迁移）
     if [ -f "$INSTALL_DIR/.env" ]; then
         set -a; source "$INSTALL_DIR/.env"; set +a
+        # 映射 .env 变量名到脚本变量名
+        PANEL_PORT="${PORT:-$PANEL_PORT}"
+        DB_PASS="${DB_PASSWORD:-$DB_PASS}"
+        ADMIN_PASS="${ADMIN_PASSWORD:-$ADMIN_PASS}"
+        REDIS_PASS="${REDIS_PASSWORD:-$REDIS_PASS}"
+        if [ -n "$REDIS_ADDR" ]; then
+            REDIS_HOST="${REDIS_ADDR%%:*}"
+            REDIS_PORT="${REDIS_ADDR##*:}"
+        fi
         info "已加载配置: $INSTALL_DIR/.env"
     elif [ -f /etc/systemd/system/${SERVICE_NAME}.service ]; then
         # 旧版迁移: 从 systemd Environment= 提取
