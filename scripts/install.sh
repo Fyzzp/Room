@@ -216,18 +216,7 @@ StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=$SERVICE_NAME
 
-Environment="PORT=$PANEL_PORT"
-Environment="DB_HOST=$DB_HOST"
-Environment="DB_PORT=$DB_PORT"
-Environment="DB_USER=$DB_USER"
-Environment="DB_PASSWORD=$DB_PASS"
-Environment="DB_NAME=$DB_NAME"
-Environment="REDIS_ADDR=$REDIS_ADDR"
-Environment="REDIS_PREFIX=$REDIS_PREFIX"
-Environment="REDIS_PASSWORD=$REDIS_PASS"
-Environment="ADMIN_EMAIL=$ADMIN_EMAIL"
-Environment="ADMIN_PASSWORD=$ADMIN_PASS"
-Environment="LOG_LEVEL=info"
+EnvironmentFile=$INSTALL_DIR/.env
 
 NoNewPrivileges=true
 PrivateTmp=true
@@ -235,6 +224,23 @@ PrivateTmp=true
 [Install]
 WantedBy=multi-user.target
 EOF
+
+    # 写入敏感环境变量文件（chmod 600 保护）
+    cat > "$INSTALL_DIR/.env" <<ENVEOF
+PORT=$PANEL_PORT
+DB_HOST=$DB_HOST
+DB_PORT=$DB_PORT
+DB_USER=$DB_USER
+DB_PASSWORD=$DB_PASS
+DB_NAME=$DB_NAME
+REDIS_ADDR=$REDIS_ADDR
+REDIS_PREFIX=$REDIS_PREFIX
+REDIS_PASSWORD=$REDIS_PASS
+ADMIN_EMAIL=$ADMIN_EMAIL
+ADMIN_PASSWORD=$ADMIN_PASS
+LOG_LEVEL=info
+ENVEOF
+    chmod 600 "$INSTALL_DIR/.env"
 
     systemctl daemon-reload
     chmod 600 /etc/systemd/system/${SERVICE_NAME}.service
