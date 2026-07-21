@@ -2,6 +2,7 @@
 # ==============================================
 #  Room — Xray 多机管理面板 安装脚本
 #  安装:   curl -sL https://raw.githubusercontent.com/Fyzzp/Room/main/scripts/install.sh | sudo bash
+#  非交互: DB_USER=xx DB_PASS=xx ... curl ... | sudo bash
 #  更新:   curl -sL https://raw.githubusercontent.com/Fyzzp/Room/main/scripts/install.sh | sudo bash -s update
 #  卸载:   curl -sL https://raw.githubusercontent.com/Fyzzp/Room/main/scripts/install.sh | sudo bash -s uninstall
 # ==============================================
@@ -9,13 +10,15 @@ set -e
 
 GITHUB_REPO="Fyzzp/Room"
 VERSION="" ; BINARY_NAME="" ; WEB_TAR_NAME="room-web-dist.tar.gz"
-INSTALL_DIR="/usr/local/bin" ; SERVICE_NAME="room"
-DATA_DIR="/etc/room" ; WEB_DIR="$DATA_DIR/web"
+INSTALL_DIR="/opt/room"
+SERVICE_NAME="room"
+CONFIG_FILE="$INSTALL_DIR/config.json"
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
 info()  { echo -e "${GREEN}[INFO]${NC} $1"; }
 warn()  { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error() { echo -e "${RED}[ERROR]${NC} $1"; }
+ask()   { echo -ne "${BLUE}[?]${NC} $1: "; }
 
 check_root() {
     if [ "$EUID" -ne 0 ]; then error "请使用 root: sudo bash install.sh"; exit 1; fi
@@ -23,49 +26,108 @@ check_root() {
 
 check_arch() {
     ARCH=$(uname -m)
-    case "$ARCH" in
-        x86_64|amd64) BINARY_NAME="room-linux-amd64" ;;
-        aarch64|arm64) BINARY_NAME="room-linux-arm64" ;;
-        *) error "不支持的架构: $ARCH"; exit 1 ;;
-    esac
+    case "$ARCH" in x86_64|amd64) BINARY_NAME="room-linux-amd64" ;; aarch64|arm64) BINARY_NAME="room-linux-arm64" ;; *) error "不支持: $ARCH"; exit 1 ;; esac
     info "架构: $ARCH → $BINARY_NAME"
 }
 
 get_latest_version() {
     if [ -z "$VERSION" ]; then
-        info "获取最新版本..."
         VERSION=$(curl -sL "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" 2>/dev/null | grep -o '"tag_name": *"[^"]*"' | head -1 | grep -o '"[^"]*"$' | tr -d '"')
         [ -z "$VERSION" ] && VERSION="v0.0.1"
     fi
     info "版本: $VERSION"
 }
 
+# 交互式收集数据库和 Redis 配置
+collect_config() {
+    echo ""
+    echo -e "${GREEN}==========================================${NC}"
+    echo -e "${GREEN}  数据库 & 缓存 配置${NC}"
+    echo -e "${GREEN}==========================================${NC}"
+    echo -e "按回车使用默认值（方括号内）"
+    echo ""
+
+    # 数据库
+    if [ -z "$DB_HOST" ]; then ask "数据库主机"; read DB_HOST; [ -z "$DB_HOST" ] && DB_HOST="localhost"; fi
+    if [ -z "$DB_PORT" ]; then ask "数据库端口"; read DB_PORT; [ -z "$DB_PORT" ] && DB_PORT="5432"; fi
+    if [ -z "$DB_NAME" ]; then ask "数据库名称"; read DB_NAME; [ -z "$DB_NAME" ] && DB_NAME="room"; fi
+    if [ -z "$DB_USER" ]; then ask "数据库用户"; read DB_USER; [ -z "$DB_USER" ] && DB_USER="room"; fi
+    if [ -z "$DB_PASS" ]; then ask "数据库密码 (留空自动生成)"; read DB_PASS; fi
+    if [ -z "$DB_PASS" ]; then
+        DB_PASS=$(cat /dev/urandom 2>/dev/null | tr -dc 'a-zA-Z0-9' | fold -w 20 | head -n 1)
+        [ -z "$DB_PASS" ] && DB_PASS="room-$(date +%s)"
+        info "已生成随机密码: $DB_PASS"
+    fi
+
+    echo ""
+    # Redis
+    if [ -z "$REDIS_HOST" ]; then ask "Redis 主机"; read REDIS_HOST; [ -z "$REDIS_HOST" ] && REDIS_HOST="localhost"; fi
+    if [ -z "$REDIS_PORT" ]; then ask "Redis 端口"; read REDIS_PORT; [ -z "$REDIS_PORT" ] && REDIS_PORT="6379"; fi
+    if [ -z "$REDIS_PREFIX" ]; then ask "Redis Key 前缀"; read REDIS_PREFIX; [ -z "$REDIS_PREFIX" ] && REDIS_PREFIX="room:"; fi
+    if [ -z "$REDIS_USER" ]; then ask "Redis 用户名 (留空=无)"; read REDIS_USER; fi
+    if [ -z "$REDIS_PASS" ]; then ask "Redis 密码 (留空=无)"; read REDIS_PASS; fi
+
+    # 面板端口
+    if [ -z "$PANEL_PORT" ]; then ask "面板端口"; read PANEL_PORT; [ -z "$PANEL_PORT" ] && PANEL_PORT="12889"; fi
+
+    echo ""
+    info "配置收集完成"
+}
+
+# 保存配置到 config.json
+save_config() {
+    mkdir -p "$INSTALL_DIR"
+    cat > "$CONFIG_FILE" <<EOF
+{
+  "port": "$PANEL_PORT",
+  "db_host": "$DB_HOST",
+  "db_port": "$DB_PORT",
+  "db_name": "$DB_NAME",
+  "db_user": "$DB_USER",
+  "db_password": "$DB_PASS",
+  "redis_host": "$REDIS_HOST",
+  "redis_port": "$REDIS_PORT",
+  "redis_prefix": "$REDIS_PREFIX",
+  "redis_user": "$REDIS_USER",
+  "redis_password": "$REDIS_PASS",
+  "log_level": "info"
+}
+EOF
+    chmod 600 "$CONFIG_FILE"
+    info "配置已保存到 $CONFIG_FILE"
+}
+
 install_deps() {
-    info "安装系统依赖 (PostgreSQL, Redis)..."
+    info "安装系统依赖..."
     apt-get update -qq
     apt-get install -y curl postgresql postgresql-client redis-server >/dev/null 2>&1
-    # 启动 PG 和 Redis
     systemctl enable postgresql redis-server 2>/dev/null || true
     systemctl start postgresql redis-server 2>/dev/null || true
-    info "PostgreSQL + Redis 已安装并启动"
+    info "PostgreSQL + Redis 已启动"
 }
 
 setup_database() {
     info "配置数据库..."
-    mkdir -p "$DATA_DIR"
 
-    # 生成随机密码
-    DB_PASS=$(cat /dev/urandom 2>/dev/null | tr -dc 'a-zA-Z0-9' | fold -w 20 | head -n 1)
-    [ -z "$DB_PASS" ] && DB_PASS="room-$(date +%s)-$(od -A n -t u4 /dev/urandom 2>/dev/null | tr -d ' ' || echo $RANDOM)"
-    (umask 077; echo "$DB_PASS" > "$DATA_DIR/.db_password")
+    su - postgres -c "psql -tc \"SELECT 1 FROM pg_roles WHERE rolname='$DB_USER'\"" 2>/dev/null | grep -q 1 || \
+        su - postgres -c "psql -c \"CREATE USER $DB_USER WITH PASSWORD '${DB_PASS//\'/\'\'}';\""
+    su - postgres -c "psql -tc \"SELECT 1 FROM pg_database WHERE datname='$DB_NAME'\"" 2>/dev/null | grep -q 1 || \
+        su - postgres -c "psql -c \"CREATE DATABASE $DB_NAME OWNER $DB_USER;\""
+    su - postgres -c "psql -c \"ALTER USER $DB_USER WITH PASSWORD '${DB_PASS//\'/\'\'}';\""
+    info "数据库就绪"
+}
 
-    # 创建用户和数据库（幂等）— 用外层 Shell 展开 ${DB_PASS}
-    su - postgres -c "psql -tc \"SELECT 1 FROM pg_roles WHERE rolname='room'\"" 2>/dev/null | grep -q 1 || \
-        su - postgres -c "psql -c \"CREATE USER room WITH PASSWORD '${DB_PASS}';\"" 2>/dev/null || true
-    su - postgres -c "psql -tc \"SELECT 1 FROM pg_database WHERE datname='room'\"" 2>/dev/null | grep -q 1 || \
-        su - postgres -c "psql -c \"CREATE DATABASE room OWNER room;\"" 2>/dev/null || true
-    su - postgres -c "psql -c \"ALTER USER room WITH PASSWORD '${DB_PASS}';\"" 2>/dev/null || true
-    info "数据库就绪（密码: $DATA_DIR/.db_password）"
+# Redis 密码配置（如果有）
+setup_redis() {
+    if [ -n "$REDIS_PASS" ]; then
+        if grep -q "^requirepass" /etc/redis/redis.conf 2>/dev/null; then
+            sed -i "s/^requirepass.*/requirepass $REDIS_PASS/" /etc/redis/redis.conf
+        else
+            echo "requirepass $REDIS_PASS" >> /etc/redis/redis.conf
+        fi
+        systemctl restart redis-server 2>/dev/null || true
+        info "Redis 密码已设置"
+    fi
 }
 
 download_release() {
@@ -74,49 +136,35 @@ download_release() {
     WEB_URL="https://github.com/${GITHUB_REPO}/releases/download/${VERSION}/${WEB_TAR_NAME}"
 
     for url in "$BIN_URL" "https://gh-proxy.com/$BIN_URL" "https://mirror.ghproxy.com/$BIN_URL"; do
-        if curl -fsSL --connect-timeout 10 --max-time 300 -o "/tmp/${BINARY_NAME}" "$url" 2>/dev/null; then
-            break
-        fi
-        warn "二进制镜像失败，尝试下一个..."
+        if curl -fsSL --connect-timeout 10 --max-time 300 -o "/tmp/${BINARY_NAME}" "$url" 2>/dev/null; then break; fi
+        warn "镜像失败，尝试下一个..."
     done
 
-    # 下载前端文件
     curl -fsSL --connect-timeout 10 --max-time 120 -o "/tmp/${WEB_TAR_NAME}" "$WEB_URL" 2>/dev/null || \
-        warn "前端文件下载失败，将使用嵌入式前端"
-
+        warn "前端文件下载失败"
     info "下载完成"
 }
 
 install_files() {
     info "安装文件..."
+    mkdir -p "$INSTALL_DIR"
     chmod +x "/tmp/${BINARY_NAME}"
-    mv "/tmp/${BINARY_NAME}" "$INSTALL_DIR/$SERVICE_NAME"
+    mv "/tmp/${BINARY_NAME}" "$INSTALL_DIR/room"
 
-    mkdir -p "$WEB_DIR"
     if [ -f "/tmp/${WEB_TAR_NAME}" ]; then
-        tar xzf "/tmp/${WEB_TAR_NAME}" -C "$WEB_DIR" 2>/dev/null || true
+        mkdir -p "$INSTALL_DIR/web"
+        tar xzf "/tmp/${WEB_TAR_NAME}" -C "$INSTALL_DIR/web" 2>/dev/null || true
         rm -f "/tmp/${WEB_TAR_NAME}"
     fi
     rm -f "/tmp/${BINARY_NAME}"
 }
 
 create_service() {
-    PORT="${PORT:-12889}"
-    # 获取密码：优先 .db_password，否则从现有 systemd unit 提取（旧版迁移），最后回退 room
-    if [ -f "$DATA_DIR/.db_password" ]; then
-        DB_PASS=$(cat "$DATA_DIR/.db_password")
-    elif [ -f /etc/systemd/system/${SERVICE_NAME}.service ]; then
-        DB_PASS=$(grep -oP 'DB_PASSWORD=\K[^"]*' /etc/systemd/system/${SERVICE_NAME}.service 2>/dev/null || true)
-        [ -z "$DB_PASS" ] && DB_PASS="room"
-        (umask 077; echo "$DB_PASS" > "$DATA_DIR/.db_password")
-        info "从旧部署迁移密码到 $DATA_DIR/.db_password"
-    else
-        DB_PASS="room"
-        echo "$DB_PASS" > "$DATA_DIR/.db_password"
-        chmod 600 "$DATA_DIR/.db_password"
-        warn "未找到密码文件，使用默认密码（请登录后修改）"
-    fi
-    info "创建 systemd 服务（端口: $PORT）"
+    info "创建 systemd 服务（端口: $PANEL_PORT）"
+
+    # 构建 Redis 连接串
+    REDIS_ADDR="${REDIS_HOST}:${REDIS_PORT}"
+    [ -n "$REDIS_USER" ] && REDIS_ADDR="${REDIS_USER}@${REDIS_ADDR}"
 
     cat > /etc/systemd/system/${SERVICE_NAME}.service <<EOF
 [Unit]
@@ -127,21 +175,23 @@ Wants=network-online.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=$DATA_DIR
-ExecStart=$INSTALL_DIR/$SERVICE_NAME
+WorkingDirectory=$INSTALL_DIR
+ExecStart=$INSTALL_DIR/room -c $CONFIG_FILE
 Restart=always
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=$SERVICE_NAME
 
-Environment="PORT=$PORT"
-Environment="DB_HOST=localhost"
-Environment="DB_PORT=5432"
-Environment="DB_USER=room"
-Environment="DB_PASSWORD=${DB_PASS}"
-Environment="DB_NAME=room"
-Environment="REDIS_ADDR=localhost:6379"
+Environment="PORT=$PANEL_PORT"
+Environment="DB_HOST=$DB_HOST"
+Environment="DB_PORT=$DB_PORT"
+Environment="DB_USER=$DB_USER"
+Environment="DB_PASSWORD=$DB_PASS"
+Environment="DB_NAME=$DB_NAME"
+Environment="REDIS_ADDR=$REDIS_ADDR"
+Environment="REDIS_PREFIX=$REDIS_PREFIX"
+Environment="REDIS_PASSWORD=$REDIS_PASS"
 Environment="LOG_LEVEL=info"
 
 NoNewPrivileges=true
@@ -156,33 +206,25 @@ EOF
 }
 
 start_service() {
-    PORT=$(grep 'PORT=' /etc/systemd/system/${SERVICE_NAME}.service | sed 's/.*PORT=\([0-9]*\).*/\1/')
-    PORT=${PORT:-12889}
-
-    # 清理占用端口的旧进程（如旧 Docker 部署残留）
+    PORT="${PANEL_PORT:-12889}"
     if ss -tlnp 2>/dev/null | grep -q ":${PORT} "; then
         warn "端口 $PORT 被占用，尝试清理..."
-        fuser -k ${PORT}/tcp 2>/dev/null || true
-        sleep 1
+        fuser -k ${PORT}/tcp 2>/dev/null || true; sleep 1
     fi
 
     info "启动服务..."
     systemctl enable ${SERVICE_NAME}.service 2>/dev/null || true
-    systemctl start ${SERVICE_NAME}.service
-    sleep 3
+    systemctl start ${SERVICE_NAME}.service; sleep 3
 
     if systemctl is-active --quiet ${SERVICE_NAME}.service; then
-        info "服务启动成功"
-        return 0
+        info "服务启动成功"; return 0
     else
-        error "服务启动失败（端口 $PORT 可能仍被占用）"
-        return 1
+        error "服务启动失败"; return 1
     fi
 }
 
 show_done() {
-    PORT=$(grep 'PORT=' /etc/systemd/system/${SERVICE_NAME}.service | sed 's/.*PORT=\([0-9]*\).*/\1/')
-    PORT=${PORT:-12889}
+    PORT="${PANEL_PORT:-12889}"
     IP=$(hostname -I 2>/dev/null | awk '{print $1}')
     [ -z "$IP" ] && IP="YOUR_SERVER_IP"
 
@@ -192,10 +234,10 @@ show_done() {
     echo "======================================"
     echo ""
     echo "  访问:     http://${IP}:${PORT}"
-    echo "  目录:     $DATA_DIR"
-    echo "  二进制:   $INSTALL_DIR/$SERVICE_NAME"
-    echo "  数据库:   PostgreSQL (room/room@localhost:5432/room)"
-    echo "  缓存:     Redis (localhost:6379)"
+    echo "  目录:     $INSTALL_DIR"
+    echo "  配置:     $CONFIG_FILE"
+    echo "  数据库:   PostgreSQL ($DB_USER@$DB_HOST:$DB_PORT/$DB_NAME)"
+    echo "  缓存:     Redis ($REDIS_HOST:$REDIS_PORT)"
     echo ""
     echo "管理命令:"
     echo "  状态:     systemctl status $SERVICE_NAME"
@@ -205,47 +247,50 @@ show_done() {
     echo ""
 }
 
-# === 更新 ===
 update_service() {
-    if [ ! -f "$INSTALL_DIR/$SERVICE_NAME" ]; then error "未安装"; exit 1; fi
+    if [ ! -f "$INSTALL_DIR/room" ]; then error "未安装"; exit 1; fi
     info "更新 Room..."
+    # 加载已有配置（如果存在）
+    [ -f "$CONFIG_FILE" ] && eval "$(python3 -c "import json;c=json.load(open('$CONFIG_FILE'));[print(f'{k.upper()}=\"{v}\"') for k,v in c.items()]" 2>/dev/null || true)"
+    PANEL_PORT="${PANEL_PORT:-12889}"
+    [ -z "$DB_HOST" ] && DB_HOST="localhost"; [ -z "$DB_PORT" ] && DB_PORT="5432"
+    [ -z "$DB_NAME" ] && DB_NAME="room"; [ -z "$DB_USER" ] && DB_USER="room"
+    [ -z "$DB_PASS" ] && DB_PASS="room"
+
     systemctl stop ${SERVICE_NAME}.service || true
-    cp "$INSTALL_DIR/$SERVICE_NAME" "$INSTALL_DIR/${SERVICE_NAME}.bak" 2>/dev/null || true
-    download_release
-    install_files
-    create_service   # 重建 systemd unit
+    cp "$INSTALL_DIR/room" "$INSTALL_DIR/room.bak" 2>/dev/null || true
+    download_release; install_files; create_service
     if start_service; then
-        rm -f "$INSTALL_DIR/${SERVICE_NAME}.bak"
-        show_done
+        rm -f "$INSTALL_DIR/room.bak"; show_done
     else
-        error "更新后启动失败，回滚..."
-        mv "$INSTALL_DIR/${SERVICE_NAME}.bak" "$INSTALL_DIR/$SERVICE_NAME" 2>/dev/null || true
-        systemctl start ${SERVICE_NAME}.service || true
-        exit 1
+        error "更新失败，回滚..."
+        mv "$INSTALL_DIR/room.bak" "$INSTALL_DIR/room" 2>/dev/null || true
+        systemctl start ${SERVICE_NAME}.service || true; exit 1
     fi
 }
 
-# === 卸载 ===
 uninstall_service() {
-    [ ! -f "$INSTALL_DIR/$SERVICE_NAME" ] && { error "未安装"; exit 1; }
+    [ ! -f "$INSTALL_DIR/room" ] && { error "未安装"; exit 1; }
     info "卸载 Room..."
     systemctl stop ${SERVICE_NAME}.service 2>/dev/null || true
     systemctl disable ${SERVICE_NAME}.service 2>/dev/null || true
     rm -f /etc/systemd/system/${SERVICE_NAME}.service
     systemctl daemon-reload
-    rm -f "$INSTALL_DIR/$SERVICE_NAME" "$INSTALL_DIR/${SERVICE_NAME}.bak"
-    rm -rf "$DATA_DIR"
+    rm -rf "$INSTALL_DIR"
     info "卸载完成（PostgreSQL/Redis 未删除）"
 }
 
-# === 主流程 ===
 main() {
     case "$1" in
         update)    check_root; check_arch; get_latest_version; update_service ;;
         uninstall) check_root; uninstall_service ;;
         *)
-            check_root; check_arch; install_deps; get_latest_version
-            setup_database; download_release; install_files; create_service
+            check_root; check_arch
+            collect_config   # 交互式收集配置
+            install_deps; get_latest_version
+            setup_database; setup_redis
+            save_config
+            download_release; install_files; create_service
             if start_service; then show_done
             else error "安装失败: journalctl -u $SERVICE_NAME -n 50"; exit 1; fi
             ;;
