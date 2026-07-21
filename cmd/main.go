@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -239,16 +240,17 @@ func main() {
 			http.NotFound(w, r)
 			return
 		}
-		// 尝试直接服务文件
-		path := "./web/dist" + r.URL.Path
-		if r.URL.Path == "/" {
-			path = "./web/dist/index.html"
+		// 尝试服务静态资源（仅 /assets/ 路径，path.Clean 防穿越）
+		if strings.HasPrefix(r.URL.Path, "/assets/") {
+			p := filepath.Clean("./web/dist" + r.URL.Path)
+			if strings.HasPrefix(p, "web/dist") {
+				if _, err := os.Stat(p); err == nil {
+					fs.ServeHTTP(w, r)
+					return
+				}
+			}
 		}
-		if _, err := os.Stat(path); err == nil {
-			fs.ServeHTTP(w, r)
-			return
-		}
-		// SPA fallback: 非文件路径返回 index.html
+		// SPA fallback: 所有其他路径返回 index.html
 		http.ServeFile(w, r, "./web/dist/index.html")
 	})
 
