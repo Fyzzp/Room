@@ -90,6 +90,7 @@ save_config() {
   "redis_prefix": "$REDIS_PREFIX",
   "redis_user": "$REDIS_USER",
   "redis_password": "$REDIS_PASS",
+  "jwt_secret": "$(cat /dev/urandom 2>/dev/null | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1)",
   "log_level": "info"
 }
 EOF
@@ -99,20 +100,33 @@ EOF
 
 install_deps() {
     info "安装系统依赖..."
-    apt-get update -qq
-    apt-get install -y curl postgresql postgresql-client redis-server >/dev/null 2>&1
-    systemctl enable postgresql redis-server 2>/dev/null || true
-    systemctl start postgresql redis-server 2>/dev/null || true
+    if command -v apt-get >/dev/null 2>&1; then
+        apt-get update -qq && apt-get install -y curl postgresql postgresql-client redis-server
+    elif command -v dnf >/dev/null 2>&1; then
+        dnf install -y curl postgresql postgresql-server redis
+    elif command -v yum >/dev/null 2>&1; then
+        yum install -y curl postgresql postgresql-server redis
+    elif command -v apk >/dev/null 2>&1; then
+        apk add --no-cache curl postgresql postgresql-client redis
+    else
+        error "未检测到支持的包管理器（apt/dnf/yum/apk），请手动安装 postgresql 和 redis"; exit 1
+    fi
+    systemctl enable postgresql redis-server 2>/dev/null || systemctl enable redis 2>/dev/null || true
+    systemctl start postgresql redis-server 2>/dev/null || systemctl start redis 2>/dev/null || true
     info "PostgreSQL + Redis 已启动"
 }
 
 setup_database() {
     info "配置数据库..."
 
+    # 校验输入仅含安全字符（防 SQL 注入）
+    if ! [[ "$DB_USER" =~ ^[a-zA-Z0-9_]+$ ]]; then error "DB_USER 仅允许字母数字下划线"; exit 1; fi
+    if ! [[ "$DB_NAME" =~ ^[a-zA-Z0-9_]+$ ]]; then error "DB_NAME 仅允许字母数字下划线"; exit 1; fi
+
     su - postgres -c "psql -tc \"SELECT 1 FROM pg_roles WHERE rolname='$DB_USER'\"" 2>/dev/null | grep -q 1 || \
-        su - postgres -c "psql -c \"CREATE USER $DB_USER WITH PASSWORD '${DB_PASS//\'/\'\'}';\""
+        su - postgres -c "psql -c \"CREATE USER \\\"$DB_USER\\\" WITH PASSWORD '${DB_PASS//\'/\'\'}';\""
     su - postgres -c "psql -tc \"SELECT 1 FROM pg_database WHERE datname='$DB_NAME'\"" 2>/dev/null | grep -q 1 || \
-        su - postgres -c "psql -c \"CREATE DATABASE $DB_NAME OWNER $DB_USER;\""
+        su - postgres -c "psql -c \"CREATE DATABASE \\\"$DB_NAME\\\" OWNER \\\"$DB_USER\\\";\""
     su - postgres -c "psql -c \"ALTER USER $DB_USER WITH PASSWORD '${DB_PASS//\'/\'\'}';\""
     info "数据库就绪"
 }
