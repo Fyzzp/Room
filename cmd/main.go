@@ -248,6 +248,19 @@ func main() {
 
 	// WebSocket 端点（Agent 连接）
 	wsHandler := ws.NewHandler()
+	wsHandler.OnAuth = func(conn *ws.AgentConnection) error {
+		_, err := db.Exec(`UPDATE servers SET status='connected', ip_address=$1, last_heartbeat=NOW(), updated_at=NOW() WHERE token=$2`,
+			conn.PublicIPv4, conn.Token)
+		if err != nil {
+			log.Printf("[WS] Failed to update server status for token %s: %v", conn.Token[:8], err)
+		}
+		log.Printf("[WS] Agent authenticated: token=%s... ip=%s", conn.Token[:8], conn.PublicIPv4)
+		return nil
+	}
+	wsHandler.OnDisconnect = func(conn *ws.AgentConnection) {
+		db.Exec(`UPDATE servers SET status='offline', updated_at=NOW() WHERE token=$1`, conn.Token)
+		log.Printf("[WS] Agent disconnected: token=%s...", conn.Token[:8])
+	}
 	h.SetWSHandler(wsHandler)
 	mux.Handle("/api/agent/ws", wsHandler)
 
