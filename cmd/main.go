@@ -547,11 +547,21 @@ func parseJWT(secret, token string) (email, role string, ok bool) {
 	if len(parts) != 3 {
 		return "", "", false
 	}
-	// 验证签名
+	// 验证算法
+	header, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		return "", "", false
+	}
+	var hdr struct{ Alg string `json:"alg"` }
+	if json.Unmarshal(header, &hdr) != nil || hdr.Alg != "HS256" {
+		return "", "", false
+	}
+	// 验证签名（时序安全）
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write([]byte(parts[0] + "." + parts[1]))
-	expectedSig := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
-	if expectedSig != parts[2] {
+	expectedSig := mac.Sum(nil)
+	actualSig, err := base64.RawURLEncoding.DecodeString(parts[2])
+	if err != nil || !hmac.Equal(expectedSig, actualSig) {
 		return "", "", false
 	}
 	// 解析 payload
