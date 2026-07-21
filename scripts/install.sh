@@ -87,6 +87,7 @@ collect_config() {
 # 保存配置到 config.json
 save_config() {
     mkdir -p "$INSTALL_DIR"
+    JWT_SECRET=$(cat /dev/urandom 2>/dev/null | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1)
     cat > "$CONFIG_FILE" <<EOF
 {
   "port": "$PANEL_PORT",
@@ -95,12 +96,10 @@ save_config() {
   "db_name": "$DB_NAME",
   "db_user": "$DB_USER",
   "db_password": "$DB_PASS",
-  "redis_host": "$REDIS_HOST",
-  "redis_port": "$REDIS_PORT",
+  "redis_addr": "$REDIS_HOST:$REDIS_PORT",
   "redis_prefix": "$REDIS_PREFIX",
-  "redis_user": "$REDIS_USER",
   "redis_password": "$REDIS_PASS",
-  "jwt_secret": "$(cat /dev/urandom 2>/dev/null | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1)",
+  "jwt_secret": "$JWT_SECRET",
   "admin_email": "$ADMIN_EMAIL",
   "admin_password": "$ADMIN_PASS",
   "log_level": "info"
@@ -238,6 +237,7 @@ REDIS_PREFIX=$REDIS_PREFIX
 REDIS_PASSWORD=$REDIS_PASS
 ADMIN_EMAIL=$ADMIN_EMAIL
 ADMIN_PASSWORD=$ADMIN_PASS
+JWT_SECRET=$JWT_SECRET
 LOG_LEVEL=info
 ENVEOF
     chmod 600 "$INSTALL_DIR/.env"
