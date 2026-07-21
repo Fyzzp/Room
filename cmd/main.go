@@ -9,8 +9,11 @@ package main
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -22,6 +25,7 @@ import (
 	"time"
 
 	_ "github.com/lib/pq"
+	"golang.org/x/crypto/bcrypt"
 )
 
 // Config 主控配置
@@ -94,12 +98,89 @@ func main() {
 
 	// 认证相关
 	mux.HandleFunc("/api/auth/login", func(w http.ResponseWriter, r *http.Request) {
-		// TODO: 实现登录逻辑
-		json.NewEncoder(w).Encode(map[string]string{"message": "TODO: login"})
+		if r.Method != http.MethodPost {
+			jsonError(w, 405, "Method not allowed")
+			return
+		}
+		var req struct {
+			Email    string `json:"email"`
+			Password string `json:"password"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			jsonError(w, 400, "Invalid JSON")
+			return
+		}
+		if req.Email == "" || req.Password == "" {
+			jsonError(w, 400, "邮箱和密码不能为空")
+			return
+		}
+
+		var userID int
+		var role, hash string
+		err := db.QueryRow("SELECT id, role, password_hash FROM users WHERE email=$1", req.Email).Scan(&userID, &role, &hash)
+		if err != nil || bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Password)) != nil {
+			jsonError(w, 401, "邮箱或密码错误")
+			return
+		}
+
+		token := generateJWT(cfg.JWTSecret, req.Email, role)
+		jsonOK(w, map[string]interface{}{
+			"token": token,
+			"user":  map[string]interface{}{"email": req.Email, "role": role},
+		})
 	})
+
 	mux.HandleFunc("/api/auth/register", func(w http.ResponseWriter, r *http.Request) {
-		// TODO: 实现注册逻辑
-		json.NewEncoder(w).Encode(map[string]string{"message": "TODO: register"})
+		if r.Method != http.MethodPost {
+			jsonError(w, 405, "Method not allowed")
+			return
+		}
+		var req struct {
+			Email    string `json:"email"`
+			Password string `json:"password"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			jsonError(w, 400, "Invalid JSON")
+			return
+		}
+		if req.Email == "" || len(req.Password) < 8 {
+			jsonError(w, 400, "邮箱不能为空且密码至少8位")
+			return
+		}
+
+		// 检查是否已存在
+		var exists int
+		db.QueryRow("SELECT 1 FROM users WHERE email=$1", req.Email).Scan(&exists)
+		if exists == 1 {
+			jsonError(w, 409, "该邮箱已注册")
+			return
+		}
+
+		// 首个注册用户为 admin
+		var count int
+		db.QueryRow("SELECT COUNT(*) FROM users").Scan(&count)
+		role := "user"
+		if count == 0 {
+			role = "admin"
+		}
+
+		hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
+		if err != nil {
+			jsonError(w, 500, "密码加密失败")
+			return
+		}
+
+		_, err = db.Exec("INSERT INTO users (email, password_hash, role) VALUES ($1, $2, $3)", req.Email, string(hash), role)
+		if err != nil {
+			jsonError(w, 500, "注册失败: "+err.Error())
+			return
+		}
+
+		token := generateJWT(cfg.JWTSecret, req.Email, role)
+		jsonOK(w, map[string]interface{}{
+			"token": token,
+			"user":  map[string]interface{}{"email": req.Email, "role": role},
+		})
 	})
 
 	// 服务器管理
@@ -426,4 +507,31 @@ func corsMiddleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// jsonOK 返回 JSON 成功响应
+func jsonOK(w http.ResponseWriter, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(data)
+}
+
+// jsonError 返回 JSON 错误响应
+func jsonError(w http.ResponseWriter, status int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(map[string]string{"error": message})
+}
+
+// generateJWT 生成简单的 JWT token
+func generateJWT(secret, email, role string) string {
+	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
+	now := time.Now().Unix()
+	payload := fmt.Sprintf(`{"email":"%s","role":"%s","iat":%d,"exp":%d}`,
+		email, role, now, now+7*24*3600)
+	payloadB64 := base64.RawURLEncoding.EncodeToString([]byte(payload))
+	sigInput := header + "." + payloadB64
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(sigInput))
+	sig := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	return sigInput + "." + sig
 }
