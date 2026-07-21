@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -183,11 +184,11 @@ func main() {
 		})
 	})
 
-	// 服务器管理
-	mux.HandleFunc("/api/servers", func(w http.ResponseWriter, r *http.Request) {
+	// 服务器管理（需要登录）
+	mux.HandleFunc("/api/servers", authMiddleware(cfg.JWTSecret, func(w http.ResponseWriter, r *http.Request) {
 		// TODO: CRUD 服务器
 		json.NewEncoder(w).Encode(map[string]string{"message": "TODO: servers"})
-	})
+	}))
 
 	// 入站/出站/路由管理
 	mux.HandleFunc("/api/inbounds", func(w http.ResponseWriter, r *http.Request) {
@@ -522,16 +523,69 @@ func jsonError(w http.ResponseWriter, status int, message string) {
 	json.NewEncoder(w).Encode(map[string]string{"error": message})
 }
 
-// generateJWT 生成简单的 JWT token
+// generateJWT 生成 JWT token
 func generateJWT(secret, email, role string) string {
 	header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"HS256","typ":"JWT"}`))
 	now := time.Now().Unix()
-	payload := fmt.Sprintf(`{"email":"%s","role":"%s","iat":%d,"exp":%d}`,
-		email, role, now, now+7*24*3600)
-	payloadB64 := base64.RawURLEncoding.EncodeToString([]byte(payload))
+	claims, _ := json.Marshal(map[string]interface{}{
+		"email": email,
+		"role":  role,
+		"iat":   now,
+		"exp":   now + 7*24*3600,
+	})
+	payloadB64 := base64.RawURLEncoding.EncodeToString(claims)
 	sigInput := header + "." + payloadB64
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write([]byte(sigInput))
 	sig := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 	return sigInput + "." + sig
+}
+
+// parseJWT 验证并解析 JWT token
+func parseJWT(secret, token string) (email, role string, ok bool) {
+	parts := strings.SplitN(token, ".", 3)
+	if len(parts) != 3 {
+		return "", "", false
+	}
+	// 验证签名
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(parts[0] + "." + parts[1]))
+	expectedSig := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	if expectedSig != parts[2] {
+		return "", "", false
+	}
+	// 解析 payload
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return "", "", false
+	}
+	var claims struct {
+		Email string `json:"email"`
+		Role  string `json:"role"`
+		Exp   int64  `json:"exp"`
+	}
+	if err := json.Unmarshal(payload, &claims); err != nil {
+		return "", "", false
+	}
+	if time.Now().Unix() > claims.Exp {
+		return "", "", false
+	}
+	return claims.Email, claims.Role, true
+}
+
+// authMiddleware 验证 Authorization Bearer token
+func authMiddleware(secret string, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		auth := r.Header.Get("Authorization")
+		if !strings.HasPrefix(auth, "Bearer ") {
+			jsonError(w, 401, "未登录")
+			return
+		}
+		token := auth[7:]
+		if _, _, ok := parseJWT(secret, token); !ok {
+			jsonError(w, 401, "token 无效或已过期")
+			return
+		}
+		next(w, r)
+	}
 }
