@@ -141,12 +141,11 @@ SQL_EOF
 # Redis 密码配置（如果有）
 setup_redis() {
     if [ -n "$REDIS_PASS" ]; then
-        # 使用 | 作为 sed 分隔符，防止密码中的 / 破坏表达式
+        # 先删除旧 requirepass 行，再追加新行（避免 sed 中的特殊字符问题）
         if grep -q "^requirepass" /etc/redis/redis.conf 2>/dev/null; then
-            sed -i "s|^requirepass.*|requirepass $REDIS_PASS|" /etc/redis/redis.conf
-        else
-            printf 'requirepass %s\n' "$REDIS_PASS" >> /etc/redis/redis.conf
+            sed -i '/^requirepass/d' /etc/redis/redis.conf
         fi
+        printf 'requirepass %s\n' "$REDIS_PASS" >> /etc/redis/redis.conf
         systemctl restart redis-server 2>/dev/null || systemctl restart redis 2>/dev/null || true
         info "Redis 密码已设置"
     fi
