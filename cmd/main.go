@@ -151,7 +151,11 @@ func main() {
 
 		// 检查是否已存在
 		var exists int
-		db.QueryRow("SELECT 1 FROM users WHERE email=$1", req.Email).Scan(&exists)
+		err := db.QueryRow("SELECT 1 FROM users WHERE email=$1", req.Email).Scan(&exists)
+		if err != nil && err != sql.ErrNoRows {
+			jsonError(w, 500, "数据库错误")
+			return
+		}
 		if exists == 1 {
 			jsonError(w, 409, "该邮箱已注册")
 			return
@@ -159,7 +163,11 @@ func main() {
 
 		// 首个注册用户为 admin
 		var count int
-		db.QueryRow("SELECT COUNT(*) FROM users").Scan(&count)
+		err = db.QueryRow("SELECT COUNT(*) FROM users").Scan(&count)
+		if err != nil && err != sql.ErrNoRows {
+			jsonError(w, 500, "数据库错误")
+			return
+		}
 		role := "user"
 		if count == 0 {
 			role = "admin"
