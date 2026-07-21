@@ -318,7 +318,12 @@ func loadMasterConfig(path string) Config {
 		LogLevel:   "info",
 	}
 
-	// 环境变量覆盖
+	// 先读配置文件
+	if data, err := os.ReadFile(path); err == nil {
+		json.Unmarshal(data, &cfg)
+	}
+
+	// 环境变量覆盖（优先级最高）
 	if v := os.Getenv("PORT"); v != "" {
 		cfg.Port = v
 	}
@@ -342,11 +347,6 @@ func loadMasterConfig(path string) Config {
 	}
 	if v := os.Getenv("JWT_SECRET"); v != "" {
 		cfg.JWTSecret = v
-	}
-
-	// 尝试读取配置文件
-	if data, err := os.ReadFile(path); err == nil {
-		json.Unmarshal(data, &cfg)
 	}
 
 	return cfg
