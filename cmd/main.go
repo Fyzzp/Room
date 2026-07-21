@@ -30,6 +30,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/Fyzzp/Room/internal/master/handler"
+	"github.com/Fyzzp/Room/internal/master/ws"
 )
 
 // Config 主控配置
@@ -246,10 +247,9 @@ func main() {
 	})
 
 	// WebSocket 端点（Agent 连接）
-	mux.HandleFunc("/api/agent/ws", func(w http.ResponseWriter, r *http.Request) {
-		// TODO: WebSocket upgrade + agent 通信
-		json.NewEncoder(w).Encode(map[string]string{"message": "TODO: ws upgrade"})
-	})
+	wsHandler := ws.NewHandler()
+	h.SetWSHandler(wsHandler)
+	mux.Handle("/api/agent/ws", wsHandler)
 
 	// 静态文件（SPA fallback: 非文件路径返回 index.html）
 	fs := http.FileServer(http.Dir("./web/dist"))
