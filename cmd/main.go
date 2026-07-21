@@ -28,6 +28,8 @@ import (
 
 	_ "github.com/lib/pq"
 	"golang.org/x/crypto/bcrypt"
+
+	"github.com/Fyzzp/Room/internal/master/handler"
 )
 
 // Config 主控配置
@@ -193,11 +195,11 @@ func main() {
 		})
 	})
 
+	// 创建 handler 实例
+	h := handler.NewMasterHandler(db)
+
 	// 服务器管理（需要登录）
-	mux.HandleFunc("/api/servers", authMiddleware(cfg.JWTSecret, func(w http.ResponseWriter, r *http.Request) {
-		// TODO: CRUD 服务器
-		json.NewEncoder(w).Encode(map[string]string{"message": "TODO: servers"})
-	}))
+	mux.HandleFunc("/api/servers", authMiddleware(cfg.JWTSecret, h.ListServers))
 
 	// 入站/出站/路由管理
 	mux.HandleFunc("/api/inbounds", func(w http.ResponseWriter, r *http.Request) {
